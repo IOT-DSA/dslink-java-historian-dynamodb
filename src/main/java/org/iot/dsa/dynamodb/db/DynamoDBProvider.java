@@ -22,6 +22,7 @@ import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
@@ -35,17 +36,20 @@ import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 
 public class DynamoDBProvider extends DatabaseProvider {
 	
 	private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProvider.class);
 	
-	private AmazonDynamoDB client = AmazonDynamoDBClientBuilder.standard().withCredentials(Main.main).build();
-    private DynamoDB dynamoDB = new DynamoDB(client);
+	private AmazonDynamoDB client;// = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
+    private DynamoDB dynamoDB;// = new DynamoDB(client);
 //	private final DynamoDBPurger purger = new DynamoDBPurger();
 
     public DynamoDBProvider() {
 //        purger.setupPurger();
+    	client = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
+    	dynamoDB = new DynamoDB(client);
     }
 
 //    public DynamoDBPurger getPurger() {
@@ -72,14 +76,18 @@ public class DynamoDBProvider extends DatabaseProvider {
 				}
 			}
 		});
-		TableCollection<ListTablesResult> tables = dynamoDB.listTables();
-        Iterator<Table> iterator = tables.iterator();
-
-        List<String> dropdown = new LinkedList<String>();
+		List<String> dropdown = new LinkedList<String>();
         dropdown.add(Util.NEW_TABLE_OPTION);
-        while (iterator.hasNext()) {
-            Table table = iterator.next();
-            dropdown.add(table.getTableName());
+        
+        try {
+			TableCollection<ListTablesResult> tables = dynamoDB.listTables();
+	        Iterator<Table> iterator = tables.iterator();
+	        while (iterator.hasNext()) {
+	            Table table = iterator.next();
+	            dropdown.add(table.getTableName());
+	        }
+        } catch (Exception e) {
+        	LOGGER.warn("", e);
         }
 		act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown), new Value(Util.NEW_TABLE_OPTION)));
 		act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription("Only applicable when creating a new table"));
@@ -91,15 +99,18 @@ public class DynamoDBProvider extends DatabaseProvider {
             List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
             attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY).withAttributeType("S"));
             attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY).withAttributeType("N"));
-            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.VALUE).withAttributeType("S"));
+//            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.VALUE).withAttributeType("S"));
             
             List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
             keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY).withKeyType(KeyType.HASH));
             keySchema.add(new KeySchemaElement().withAttributeName(Util.TS_KEY).withKeyType(KeyType.RANGE));
 
-            CreateTableRequest request = new CreateTableRequest().withTableName(tableName).withKeySchema(keySchema)
-                .withAttributeDefinitions(attributeDefinitions);
-
+            CreateTableRequest request = new CreateTableRequest()
+            		.withTableName(tableName)
+            		.withKeySchema(keySchema)
+            		.withAttributeDefinitions(attributeDefinitions)
+            		.withProvisionedThroughput(new ProvisionedThroughput()
+            				.withReadCapacityUnits(5L).withWriteCapacityUnits(6L));
             Table table = dynamoDB.createTable(request);
             table.waitForActive();
         }

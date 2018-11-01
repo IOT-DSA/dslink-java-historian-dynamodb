@@ -2,6 +2,7 @@ package org.iot.dsa.dynamodb;
 
 public class Util {
 	
+	public static final String CREDENTIALS = "Credentials";
 	public static final String ACCESS_ID = "Access Key ID";
 	public static final String ACCESS_SECRET = "Secret Access Key";
 	public static final String NEW_TABLE_OPTION = "CREATE NEW TABLE";

@@ -22,13 +22,20 @@ import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
  */
 public class Main extends Historian implements AWSCredentialsProvider {
 	
-	public static Main main;
+	private static Main main;
 	
 //	private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 	private final DynamoDBProvider provider;
 	private Node rootNode;
+	
+	public static Main getInstance() {
+		return main;
+	}
 
-	public Main() {
+	private Main() {
+		if (main == null) {
+			main = this;
+		}
 		this.provider = new DynamoDBProvider();
 	}
 	
@@ -48,18 +55,23 @@ public class Main extends Historian implements AWSCredentialsProvider {
 		Action act = new Action(Permission.READ, new Handler<ActionResult>() {
 			@Override
 			public void handle(ActionResult event) {
+				Node credNode = node.getChild(Util.CREDENTIALS, true);
+				if (credNode == null) {
+					credNode = node.createChild(Util.CREDENTIALS, true).setHidden(true).build();
+				}
 				Value idV = event.getParameter(Util.ACCESS_ID);
 				Value secV = event.getParameter(Util.ACCESS_SECRET);
 				if (idV != null && secV != null) {
-					node.setRoConfig(Util.ACCESS_ID, idV);
-					node.setPassword(secV.getString().toCharArray());
+					credNode.setRoConfig(Util.ACCESS_ID, idV);
+					credNode.setPassword(secV.getString().toCharArray());
 				} else {
-					node.removeRoConfig(Util.ACCESS_ID);
+					credNode.removeRoConfig(Util.ACCESS_ID);
 				}
 				initialize(node);
 			}
 		});
-		Value idV = node.getRoConfig(Util.ACCESS_ID);
+		Node credNode = node.getChild(Util.CREDENTIALS, true);
+		Value idV = credNode == null ? null : node.getRoConfig(Util.ACCESS_ID);
 		if (idV != null) {
 			act.addParameter(new Parameter(Util.ACCESS_ID, ValueType.STRING, idV));
 		} else {
@@ -81,14 +93,14 @@ public class Main extends Historian implements AWSCredentialsProvider {
     }
 	
 	public static void main(String[] args) {
-        main = new Main();
-        main.start(args);
+        new Main().start(args);
     }
 
 	@Override
 	public AWSCredentials getCredentials() {
-		Value idV = rootNode.getRoConfig(Util.ACCESS_ID);
-		char[] secretCharr = rootNode.getPassword();
+		Node credNode = rootNode.getChild(Util.CREDENTIALS, true);
+		Value idV = credNode == null ? null : credNode.getRoConfig(Util.ACCESS_ID);
+		char[] secretCharr = credNode == null ? null : credNode.getPassword();
 		if (idV != null && secretCharr != null) {
 			String id = idV.getString();
 			String secret = String.valueOf(secretCharr);

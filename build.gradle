@@ -2,7 +2,7 @@ apply plugin: 'application'
 apply plugin: 'findbugs'
 apply plugin: 'java-library'
 
-mainClassName = 'org.dsa.iot.dynamodb.Main'
+mainClassName = 'org.iot.dsa.dynamodb.Main'
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
 version = '0.0.1'
