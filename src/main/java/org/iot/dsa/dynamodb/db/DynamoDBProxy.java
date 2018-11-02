@@ -1,12 +1,26 @@
 package org.iot.dsa.dynamodb.db;
 
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.dsa.iot.dslink.node.Node;
+import org.dsa.iot.dslink.node.Permission;
+import org.dsa.iot.dslink.node.actions.Action;
+import org.dsa.iot.dslink.node.actions.ActionResult;
+import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
+import org.dsa.iot.dslink.node.value.ValueType;
+import org.dsa.iot.dslink.util.Objects;
+import org.dsa.iot.dslink.util.TimeUtils;
 import org.dsa.iot.dslink.util.handler.CompleteHandler;
+import org.dsa.iot.dslink.util.handler.Handler;
+import org.dsa.iot.dslink.util.json.JsonArray;
+import org.dsa.iot.dslink.util.json.JsonObject;
 import org.dsa.iot.historian.database.Database;
 import org.dsa.iot.historian.utils.QueryData;
 import org.iot.dsa.dynamodb.Util;
@@ -15,13 +29,37 @@ import org.slf4j.LoggerFactory;
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression;
+import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndexDescription;
+import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
+import com.amazonaws.services.dynamodbv2.model.LocalSecondaryIndexDescription;
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputDescription;
+import com.amazonaws.services.dynamodbv2.model.StreamSpecification;
+import com.amazonaws.services.dynamodbv2.model.TableDescription;
 
 public class DynamoDBProxy extends Database {
 	
 	private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProxy.class);
     private final DynamoDBProvider provider;
     private final DynamoDBMapper mapper;
+    ScheduledFuture<?> tableInfoPoller;
+    
+    private Node attrDefsNode;
+    private Node creationNode;
+    private Node gsisNode;
+	private Node itemCountNode;
+	private Node keySchemaNode;
+	private Node streamArnNode;
+	private Node provThroughputNode;
+	private Node lsisNode;
+	private Node streamLabelNode;
+	private Node streamSpecNode;
+	private Node tableArnNode;
+	private Node tableNameNode;
+	private Node tableSizeNode;
+	private Node tableStatusNode;
+ 
 	
 	public DynamoDBProxy(String name, DynamoDBProvider provider, DynamoDBMapper mapper) {
         super(name, provider);
@@ -90,8 +128,9 @@ public class DynamoDBProxy extends Database {
 
 	@Override
 	public void close() throws Exception {
-		// TODO Auto-generated method stub
-
+		if (tableInfoPoller != null) {
+			tableInfoPoller.cancel(true);
+		}
 	}
 
 	@Override
@@ -101,9 +140,161 @@ public class DynamoDBProxy extends Database {
 	}
 
 	@Override
-	public void initExtensions(Node node) {
-		// TODO Auto-generated method stub
+	public void initExtensions(final Node node) {
+		
+		attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY).build();
+		attrDefsNode.setSerializable(false);
+		creationNode = node.createChild(Util.CREATION_DATETIME, true).setValueType(ValueType.STRING).build();
+		creationNode.setSerializable(false);
+		gsisNode = node.createChild(Util.GLOBAL_SECONDARY_INDICES, true).setValueType(ValueType.ARRAY).build();
+		gsisNode.setSerializable(false);
+		itemCountNode = node.createChild(Util.ITEM_COUNT, true).setValueType(ValueType.NUMBER).build();
+		itemCountNode.setSerializable(false);
+		keySchemaNode = node.createChild(Util.KEY_SCHEMA, true).setValueType(ValueType.ARRAY).build();
+		keySchemaNode.setSerializable(false);
+		streamArnNode = node.createChild(Util.STREAM_ARN, true).setValueType(ValueType.STRING).build();
+		streamArnNode.setSerializable(false);
+		streamLabelNode = node.createChild(Util.STREAM_LABEL, true).setValueType(ValueType.STRING).build();
+		streamLabelNode.setSerializable(false);
+		lsisNode = node.createChild(Util.LOCAL_SECONDARY_INDICES, true).setValueType(ValueType.ARRAY).build();
+		lsisNode.setSerializable(false);
+		provThroughputNode = node.createChild(Util.PROVISIONED_THROUGHPUT, true).setValueType(ValueType.MAP).build();
+		provThroughputNode.setSerializable(false);
+		streamSpecNode = node.createChild(Util.STREAM_SPEC, true).setValueType(ValueType.STRING).build();
+		streamSpecNode.setSerializable(false);
+		tableArnNode = node.createChild(Util.TABLE_ARN, true).setValueType(ValueType.STRING).build();
+		tableArnNode.setSerializable(false);
+		tableNameNode = node.createChild(Util.TABLE_NAME, true).setValueType(ValueType.STRING).build();
+		tableNameNode.setSerializable(false);
+		tableSizeNode = node.createChild(Util.TABLE_SIZE_BYTES, true).setValueType(ValueType.NUMBER).build();
+		tableSizeNode.setSerializable(false);
+		tableStatusNode = node.createChild(Util.TABLE_STATUS, true).setValueType(ValueType.STRING).build();
+		tableStatusNode.setSerializable(false);
+		
+		ScheduledThreadPoolExecutor stpe = Objects.getDaemonThreadPool();
+		tableInfoPoller = stpe.scheduleWithFixedDelay(new Runnable() {
+			@Override
+			public void run() {
+				refreshTableDetails(node);
+			}		
+		}, 0, 6, TimeUnit.HOURS);
+	}
 
+	protected void refreshTableDetails(final Node node) {
+		TableDescription tableInfo = provider.getTableInfo(node.getName());
+		
+		List<AttributeDefinition> attrDefs = tableInfo.getAttributeDefinitions();
+		if (attrDefs != null) {
+			JsonArray ja = new JsonArray();
+			for (AttributeDefinition ad: attrDefs) {
+				ja.add(ad.toString());
+			}
+			attrDefsNode.setValue(new Value(ja));
+		}
+		
+		Date creation = tableInfo.getCreationDateTime();
+		if (creation != null) {
+			creationNode.setValue(new Value(TimeUtils.format(creation)));
+		}
+		
+		List<GlobalSecondaryIndexDescription> gsis = tableInfo.getGlobalSecondaryIndexes();
+		if (gsis != null) {
+			JsonArray ja = new JsonArray();
+			for (GlobalSecondaryIndexDescription gsi: gsis) {
+				ja.add(gsi.toString());
+			}
+			gsisNode.setValue(new Value(ja));
+		}
+		
+		long itemCount = tableInfo.getItemCount();
+		itemCountNode.setValue(new Value(itemCount));
+		
+		List<KeySchemaElement> keySchema = tableInfo.getKeySchema();
+		if (keySchema != null) {
+			JsonArray ja = new JsonArray();
+			for (KeySchemaElement elem: keySchema) {
+				ja.add(elem.toString());
+			}
+			keySchemaNode.setValue(new Value(ja));
+		}
+		
+		String latestStreamArn = tableInfo.getLatestStreamArn();
+		if (latestStreamArn != null) {
+			streamArnNode.setValue(new Value(latestStreamArn));
+		}
+		
+		String latestStreamLabel = tableInfo.getLatestStreamLabel();
+		if (latestStreamLabel != null) {
+			streamLabelNode.setValue(new Value(latestStreamLabel));
+		}
+		
+		List<LocalSecondaryIndexDescription> lsis = tableInfo.getLocalSecondaryIndexes();
+		if (lsis != null) {
+			JsonArray ja = new JsonArray();
+			for (LocalSecondaryIndexDescription lsi: lsis) {
+				ja.add(lsi.toString());
+			}
+			lsisNode.setValue(new Value(ja));
+		}
+		
+		ProvisionedThroughputDescription provThru = tableInfo.getProvisionedThroughput();
+		if (provThru != null) {
+			long latestRCU = provThru.getReadCapacityUnits();
+			long latestWCU = provThru.getWriteCapacityUnits();
+			Date lastDecrease = provThru.getLastDecreaseDateTime();
+			Date lastIncrease = provThru.getLastIncreaseDateTime();
+			long numDecreases = provThru.getNumberOfDecreasesToday();
+			JsonObject jo = new JsonObject();
+			jo.put("Read Capacity Units", latestRCU);
+			jo.put("Write Capacity Units", latestWCU);
+			jo.put("Last Decrease Date", lastDecrease != null ? TimeUtils.format(lastDecrease) : null);
+			jo.put("Last Increase Date", lastIncrease != null ? TimeUtils.format(lastIncrease) : null);
+			jo.put("Number of Decreases Today", numDecreases);
+			provThroughputNode.setValue(new Value(jo));
+			
+			Action act = new Action(Permission.READ, new Handler<ActionResult>() {
+				@Override
+				public void handle(ActionResult event) {
+					long rcu = event.getParameter(Util.RCU, ValueType.NUMBER).getNumber().longValue();
+					long wcu = event.getParameter(Util.WCU, ValueType.NUMBER).getNumber().longValue();
+					provider.updateTable(node.getName(), rcu, wcu);
+					refreshTableDetails(node);
+				}
+			});
+			act.addParameter(new Parameter(Util.RCU, ValueType.NUMBER, new Value(latestRCU)));
+			act.addParameter(new Parameter(Util.WCU, ValueType.NUMBER, new Value(latestWCU)));
+			Node anode = node.getChild(Util.EDIT_TABLE, true);
+			if (anode == null) {
+				node.createChild(Util.EDIT_TABLE, true).setAction(act).build().setSerializable(false);
+			} else {
+				anode.setAction(act);
+			}
+		}
+		
+		StreamSpecification streamSpec = tableInfo.getStreamSpecification();
+		if (streamSpec != null) {
+			streamSpecNode.setValue(new Value(streamSpec.toString()));
+		}
+		
+		String tableArn = tableInfo.getTableArn();
+		if (tableArn != null) {
+			tableArnNode.setValue(new Value(tableArn));
+		}
+		
+		String tableName = tableInfo.getTableName();
+		if (tableName != null) {
+			tableNameNode.setValue(new Value(tableName));
+		}
+		
+		long tableBytes = tableInfo.getTableSizeBytes();
+		tableSizeNode.setValue(new Value(tableBytes));
+		
+		String tableStatus = tableInfo.getTableStatus();
+		if (tableStatus != null) {
+			tableStatusNode.setValue(new Value(tableStatus));
+		}
+		
+		
 	}
 
 }

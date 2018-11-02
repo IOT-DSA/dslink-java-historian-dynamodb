@@ -37,6 +37,7 @@ import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
+import com.amazonaws.services.dynamodbv2.model.TableDescription;
 
 public class DynamoDBProvider extends DatabaseProvider {
 	
@@ -68,7 +69,15 @@ public class DynamoDBProvider extends DatabaseProvider {
 				String tableName = event.getParameter(Util.EXISTING_TABLE_NAME).getString();
 				if (Util.NEW_TABLE_OPTION.equals(tableName)) {
 					tableName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING).getString();
-					createTable(tableName);
+					long rcu = event.getParameter(Util.NEW_TABLE_RCU, ValueType.NUMBER).getNumber().longValue();
+					long wcu = event.getParameter(Util.NEW_TABLE_WCU, ValueType.NUMBER).getNumber().longValue();
+					try {
+						createTable(tableName, rcu, wcu);
+					} catch (Exception e) {
+						LOGGER.error("CreateTable request failed for " + tableName);
+			            LOGGER.error(e.getMessage());
+			            tableName = null;
+					}
 				}
 				if (tableName != null) {
 					NodeBuilder builder = createDbNode(tableName, event);
@@ -91,33 +100,46 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
 		act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown), new Value(Util.NEW_TABLE_OPTION)));
 		act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription("Only applicable when creating a new table"));
+		act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L)));
+		act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L)));
 		return act;
 	}
 	
-	private void createTable(String tableName) {
-		try {
-            List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
-            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY).withAttributeType("S"));
-            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY).withAttributeType("N"));
+	private void createTable(String tableName, long rcu, long wcu) throws Exception {
+        List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+        attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY).withAttributeType("S"));
+        attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY).withAttributeType("N"));
 //            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.VALUE).withAttributeType("S"));
-            
-            List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
-            keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY).withKeyType(KeyType.HASH));
-            keySchema.add(new KeySchemaElement().withAttributeName(Util.TS_KEY).withKeyType(KeyType.RANGE));
+        
+        List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+        keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY).withKeyType(KeyType.HASH));
+        keySchema.add(new KeySchemaElement().withAttributeName(Util.TS_KEY).withKeyType(KeyType.RANGE));
 
-            CreateTableRequest request = new CreateTableRequest()
-            		.withTableName(tableName)
-            		.withKeySchema(keySchema)
-            		.withAttributeDefinitions(attributeDefinitions)
-            		.withProvisionedThroughput(new ProvisionedThroughput()
-            				.withReadCapacityUnits(5L).withWriteCapacityUnits(6L));
-            Table table = dynamoDB.createTable(request);
-            table.waitForActive();
-        }
-        catch (Exception e) {
-            LOGGER.error("CreateTable request failed for " + tableName);
+        CreateTableRequest request = new CreateTableRequest()
+        		.withTableName(tableName)
+        		.withKeySchema(keySchema)
+        		.withAttributeDefinitions(attributeDefinitions)
+        		.withProvisionedThroughput(new ProvisionedThroughput()
+        				.withReadCapacityUnits(rcu).withWriteCapacityUnits(wcu));
+        Table table = dynamoDB.createTable(request);
+        table.waitForActive();
+        
+	}
+	
+	TableDescription getTableInfo(String tableName) {
+		Table table = dynamoDB.getTable(tableName);
+		return table.describe();
+	}
+	
+	void updateTable(String tableName, long rcu, long wcu) {
+		try {
+			Table table = dynamoDB.getTable(tableName);
+			table.updateTable(new ProvisionedThroughput().withReadCapacityUnits(rcu).withWriteCapacityUnits(wcu));
+			table.waitForActive();
+		} catch (Exception e) {
+			LOGGER.error("UpdateTable request failed for " + tableName);
             LOGGER.error(e.getMessage());
-        }
+		}
 	}
 
 	@Override
