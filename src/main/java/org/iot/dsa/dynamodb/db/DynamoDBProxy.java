@@ -10,10 +10,12 @@ import java.util.concurrent.TimeUnit;
 
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.Permission;
+import org.dsa.iot.dslink.node.Writable;
 import org.dsa.iot.dslink.node.actions.Action;
 import org.dsa.iot.dslink.node.actions.ActionResult;
 import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
+import org.dsa.iot.dslink.node.value.ValuePair;
 import org.dsa.iot.dslink.node.value.ValueType;
 import org.dsa.iot.dslink.util.Objects;
 import org.dsa.iot.dslink.util.TimeUtils;
@@ -37,6 +39,7 @@ import com.amazonaws.services.dynamodbv2.model.LocalSecondaryIndexDescription;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputDescription;
 import com.amazonaws.services.dynamodbv2.model.StreamSpecification;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
+import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
 
 public class DynamoDBProxy extends Database {
 	
@@ -59,6 +62,9 @@ public class DynamoDBProxy extends Database {
 	private Node tableNameNode;
 	private Node tableSizeNode;
 	private Node tableStatusNode;
+	private Node ttlEnabledNode;
+	private Node ttlDefaultDaysNode;
+	private Node ttlStatusNode;
  
 	
 	public DynamoDBProxy(String name, DynamoDBProvider provider, DynamoDBMapper mapper) {
@@ -66,6 +72,16 @@ public class DynamoDBProxy extends Database {
         this.mapper = mapper;
         this.provider = provider;
     }
+	
+	void setTTLEnabled(String tableName, boolean enabled) {
+		provider.updateTTL(tableName, enabled);
+		refreshTTLStatus(tableName);
+	}
+	
+	long getExpiration() {
+		long ttl = (long) (ttlDefaultDaysNode.getValue().getNumber().doubleValue() * 24 * 60 * 60 * 1000);
+		return System.currentTimeMillis() + ttl;
+	}
 
 	@Override
 	public void write(String path, Value value, long ts) {
@@ -73,6 +89,7 @@ public class DynamoDBProxy extends Database {
 		entry.setWatchPath(path);
 		entry.setTs(ts);
 		entry.setValue(value.toString());
+		entry.setExpiration(getExpiration());
 
 		mapper.save(entry);
 	}
@@ -125,6 +142,34 @@ public class DynamoDBProxy extends Database {
 		DBEntry first = results.isEmpty() ? null : results.get(0);
 		return first == null ? null : new QueryData(new Value(first.getValue()), first.getTs());
 	}
+	
+	public void delete(String path, long fromTs, long toTs) {
+		
+		Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
+		eav.put(":v1", new AttributeValue().withS(path));
+		if (fromTs >= 0) {
+			eav.put(":v2", new AttributeValue().withN(String.valueOf(fromTs)));
+		}
+		if (toTs >= 0) {
+			eav.put(":v3", new AttributeValue().withN(String.valueOf(toTs)));
+		}
+		String cond = Util.WATCH_PATH_KEY + " = :v1";
+		if (fromTs >= 0 && toTs >= 0) {
+			cond += " and " + Util.TS_KEY + " between :v2 and :v3";
+		} else if (fromTs >= 0) {
+			cond += " and " + Util.TS_KEY + " > :v2";
+		} else if (toTs >= 0) {
+			cond += " and " + Util.TS_KEY + " < :v3";
+		}
+		
+
+		DynamoDBQueryExpression<DBEntry> queryExpression = new DynamoDBQueryExpression<DBEntry>() 
+		    .withKeyConditionExpression(cond)
+		    .withExpressionAttributeValues(eav);
+		List<DBEntry> results = mapper.query(DBEntry.class, queryExpression);
+		
+		mapper.batchDelete(results);
+	}
 
 	@Override
 	public void close() throws Exception {
@@ -141,6 +186,7 @@ public class DynamoDBProxy extends Database {
 
 	@Override
 	public void initExtensions(final Node node) {
+		ScheduledThreadPoolExecutor stpe = Objects.getDaemonThreadPool();
 		
 		attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY).build();
 		attrDefsNode.setSerializable(false);
@@ -170,8 +216,33 @@ public class DynamoDBProxy extends Database {
 		tableSizeNode.setSerializable(false);
 		tableStatusNode = node.createChild(Util.TABLE_STATUS, true).setValueType(ValueType.STRING).build();
 		tableStatusNode.setSerializable(false);
-		
-		ScheduledThreadPoolExecutor stpe = Objects.getDaemonThreadPool();
+        ttlStatusNode = node.createChild(Util.TTL_STATUS, true).setValueType(ValueType.STRING).build();
+        ttlStatusNode.setSerializable(false);
+        ttlEnabledNode = node.getChild(Util.TTL_ENABLED, true);
+        if (ttlEnabledNode == null) {
+        	ttlEnabledNode = node.createChild(Util.TTL_ENABLED, true).setValueType(ValueType.BOOL).setValue(new Value(false)).build();
+        } else if (ttlEnabledNode.getValue() != null){
+        	stpe.schedule(new Runnable() {
+				@Override
+				public void run() {
+					setTTLEnabled(node.getName(), ttlEnabledNode.getValue().getBool());
+				}
+			}, 0, TimeUnit.MILLISECONDS);
+        }
+        ttlEnabledNode.getListener().setValueHandler(new Handler<ValuePair>() {
+			@Override
+			public void handle(ValuePair event) {
+				if (event.isFromExternalSource()) {
+					setTTLEnabled(node.getName(), event.getCurrent().getBool());
+				}
+			}      	
+        });
+        ttlEnabledNode.setWritable(Writable.WRITE);
+        ttlDefaultDaysNode = node.getChild(Util.TTL_DEFAULT, true);
+        if (ttlDefaultDaysNode == null) {
+        	ttlDefaultDaysNode = node.createChild(Util.TTL_DEFAULT, true).setValueType(ValueType.NUMBER).setValue(new Value(1461)).build();
+        }
+        ttlDefaultDaysNode.setWritable(Writable.WRITE);
 		tableInfoPoller = stpe.scheduleWithFixedDelay(new Runnable() {
 			@Override
 			public void run() {
@@ -294,7 +365,16 @@ public class DynamoDBProxy extends Database {
 			tableStatusNode.setValue(new Value(tableStatus));
 		}
 		
-		
+		refreshTTLStatus(tableName);
 	}
-
+	
+	private void refreshTTLStatus(String tableName) {
+		TimeToLiveDescription ttlDesc = provider.getTTLInfo(tableName);
+		if (ttlDesc != null) {
+			String ttlStatus = ttlDesc.getTimeToLiveStatus();
+			if (ttlStatus != null) {
+				ttlStatusNode.setValue(new Value(ttlStatus));
+			}
+		}
+	}
 }

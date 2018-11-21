@@ -19,6 +19,7 @@ public class Util {
 	public static final String WATCH_PATH_KEY = "watchPath";
 	public static final String TS_KEY = "ts";
 	public static final String VALUE = "value";
+	public static final String TTL = "expiration";
 	
 	public static final String ATTR_DEFINITIONS = "Attribute Definitions";
 	public static final String CREATION_DATETIME = "Creation Date";
@@ -34,5 +35,8 @@ public class Util {
 	public static final String TABLE_NAME = "Table Name";
 	public static final String TABLE_SIZE_BYTES = "Table Size (Bytes)";
 	public static final String TABLE_STATUS = "Table Status";
+	public static final String TTL_ENABLED = "TTL Enabled";
+	public static final String TTL_DEFAULT = "Default TTL for New Records (Days)";
+	public static final String TTL_STATUS = "TTL Status";
 
 }

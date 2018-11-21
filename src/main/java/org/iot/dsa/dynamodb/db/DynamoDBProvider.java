@@ -10,6 +10,7 @@ import org.dsa.iot.dslink.node.NodeBuilder;
 import org.dsa.iot.dslink.node.Permission;
 import org.dsa.iot.dslink.node.actions.Action;
 import org.dsa.iot.dslink.node.actions.ActionResult;
+import org.dsa.iot.dslink.node.actions.EditorType;
 import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValueType;
@@ -17,6 +18,7 @@ import org.dsa.iot.dslink.util.handler.Handler;
 import org.dsa.iot.historian.database.Database;
 import org.dsa.iot.historian.database.DatabaseProvider;
 import org.dsa.iot.historian.database.Watch;
+import org.dsa.iot.historian.utils.TimeParser;
 import org.iot.dsa.dynamodb.Main;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
@@ -31,13 +33,19 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig.Table
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.document.TableCollection;
+import com.amazonaws.services.dynamodbv2.model.AmazonDynamoDBException;
 import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
+import com.amazonaws.services.dynamodbv2.model.DescribeTimeToLiveRequest;
+import com.amazonaws.services.dynamodbv2.model.DescribeTimeToLiveResult;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
+import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
+import com.amazonaws.services.dynamodbv2.model.TimeToLiveSpecification;
+import com.amazonaws.services.dynamodbv2.model.UpdateTimeToLiveRequest;
 
 public class DynamoDBProvider extends DatabaseProvider {
 	
@@ -123,12 +131,32 @@ public class DynamoDBProvider extends DatabaseProvider {
         				.withReadCapacityUnits(rcu).withWriteCapacityUnits(wcu));
         Table table = dynamoDB.createTable(request);
         table.waitForActive();
-        
 	}
 	
 	TableDescription getTableInfo(String tableName) {
 		Table table = dynamoDB.getTable(tableName);
 		return table.describe();
+	}
+	
+	void updateTTL(String tableName, boolean enabled) {
+		TimeToLiveSpecification ttlSpec = new TimeToLiveSpecification()
+        		.withAttributeName(Util.TTL)
+        		.withEnabled(enabled);
+		UpdateTimeToLiveRequest ttlReq = new UpdateTimeToLiveRequest()
+        		.withTableName(tableName)
+        		.withTimeToLiveSpecification(ttlSpec);
+		try {
+			client.updateTimeToLive(ttlReq);
+		} catch (AmazonDynamoDBException e) {
+			LOGGER.debug("" ,e);
+		}
+	}
+	
+	TimeToLiveDescription getTTLInfo(String tableName) {
+		DescribeTimeToLiveRequest getTTLReq = new DescribeTimeToLiveRequest()
+				.withTableName(tableName);
+		DescribeTimeToLiveResult result = client.describeTimeToLive(getTTLReq);
+		return result.getTimeToLiveDescription();
 	}
 	
 	void updateTable(String tableName, long rcu, long wcu) {
@@ -156,10 +184,51 @@ public class DynamoDBProvider extends DatabaseProvider {
 	public Permission dbPermission() {
 		return Permission.CONFIG;
 	}
+	
+	@Override
+	public void onWatchAdded(final Watch watch) {
+		final Node node = watch.getNode();
+        final Database database = watch.getGroup().getDb();
+        final Permission perm = database.getProvider().dbPermission();
+        NodeBuilder b = node.createChild("unsubPurge", true).setDisplayName("Unsubscribe and Purge");
+        Action a = new Action(perm, new Handler<ActionResult>() {
+            @Override
+            public void handle(ActionResult event) {
+                watch.unsubscribe();
+                
+                String path = watch.getPath();
+                DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+                db.delete(path, -1, -1);
+            }
+        });
+        b.setAction(a);
+        b.build();
+        
+        b = node.createChild("purge", true).setDisplayName("Purge");
+        a = new Action(perm, new Handler<ActionResult>() {
+            @Override
+            public void handle(ActionResult event) {
+                long fromTs = -1;
+                long toTs = -1;
+
+                Value vTR = event.getParameter("Timerange");
+                if (vTR != null) {
+                    String[] split = vTR.getString().split("/");
+                    fromTs = TimeParser.parse(split[0]);
+                    toTs = TimeParser.parse(split[1]);
+                }
+                DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+        		db.delete(watch.getPath(), fromTs, toTs);
+            }
+        });
+        a.addParameter(new Parameter("Timerange", ValueType.STRING).setEditorType(EditorType.DATE_RANGE).setDescription("The range for which to purge data"));
+        b.setAction(a);
+        b.build();
+	}
 
 	@Override
 	public void deleteRange(Watch watch, long fromTs, long toTs) {
-		// TODO Auto-generated method stub
-
+		DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+		db.delete(watch.getPath(), fromTs, toTs);
 	}
 }

@@ -10,6 +10,7 @@ public class DBEntry {
 	private String watchPath;
 	private Long ts;
 	private String value;
+	private Long expiration;
 	
 	@DynamoDBHashKey
 	public String getWatchPath() { return watchPath; }
@@ -22,6 +23,10 @@ public class DBEntry {
 	@DynamoDBAttribute
 	public String getValue() { return value; }
 	public void setValue(String value) { this.value = value; }
+	
+	@DynamoDBAttribute
+	public Long getExpiration() { return expiration; }
+	public void setExpiration(Long expiration) { this.expiration = expiration; }
 	
 	
 }
