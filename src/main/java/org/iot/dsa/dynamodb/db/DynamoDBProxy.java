@@ -78,20 +78,32 @@ public class DynamoDBProxy extends Database {
 		refreshTTLStatus(tableName);
 	}
 	
-	long getExpiration() {
-		long ttl = (long) (ttlDefaultDaysNode.getValue().getNumber().doubleValue() * 24 * 60 * 60 * 1000);
-		return System.currentTimeMillis() + ttl;
+	public long getExpiration() {
+		return getExpiration(System.currentTimeMillis());
 	}
-
-	@Override
-	public void write(String path, Value value, long ts) {
+	
+	public long getExpiration(long now) {
+		long ttl = (long) (ttlDefaultDaysNode.getValue().getNumber().doubleValue() * 24 * 60 * 60 * 1000);
+		return now + ttl;
+	}
+	
+	public void batchWrite(Iterable<DBEntry> entries) {
+		mapper.batchSave(entries);
+	}
+	
+	public void write(String path, Value value, long ts, long expiration) {
 		DBEntry entry = new DBEntry();
 		entry.setWatchPath(path);
 		entry.setTs(ts);
 		entry.setValue(value.toString());
-		entry.setExpiration(getExpiration());
+		entry.setExpiration(expiration);
 
 		mapper.save(entry);
+	}
+
+	@Override
+	public void write(String path, Value value, long ts) {
+		write(path, value, ts, getExpiration());
 	}
 
 	@Override

@@ -1,5 +1,10 @@
 package org.iot.dsa.dynamodb;
 
+import org.dsa.iot.dslink.util.TimeUtils;
+import org.dsa.iot.dslink.util.json.JsonArray;
+import org.dsa.iot.dslink.util.json.JsonObject;
+import org.iot.dsa.dynamodb.db.DBEntry;
+
 public class Util {
 	
 	public static final String CREDENTIALS = "Credentials";
@@ -20,6 +25,7 @@ public class Util {
 	public static final String TS_KEY = "ts";
 	public static final String VALUE = "value";
 	public static final String TTL = "expiration";
+	public static final String TS = "timestamp";
 	
 	public static final String ATTR_DEFINITIONS = "Attribute Definitions";
 	public static final String CREATION_DATETIME = "Creation Date";
@@ -38,5 +44,81 @@ public class Util {
 	public static final String TTL_ENABLED = "TTL Enabled";
 	public static final String TTL_DEFAULT = "Default TTL for New Records (Days)";
 	public static final String TTL_STATUS = "TTL Status";
+	
+	public static DBEntry parseRecord(Object o) {
+		if (o instanceof JsonObject) {
+			return parseRecord((JsonObject) o);
+		} else if (o instanceof JsonArray) {
+			return parseRecord((JsonArray) o);
+		} else if (o instanceof String) {
+			String s = (String) o;
+			if (s.charAt(0) != '[') {
+				s = "[" + s;
+			}
+			if (s.charAt(s.length() - 1) != ']') {
+				s = s + "]";
+			}
+			return parseRecord(new JsonArray(s));
+		}
+		return null;
+	}
+	
+	public static DBEntry parseRecord(JsonObject jo) {
+		Object tsO = jo.get(TS);
+		Object valO = jo.get(VALUE);
+		Object expO = jo.get(TTL);
+		long ts = parseTs(tsO);
+		String val = valO.toString();
+		long exp = parseTs(expO);
+		if (ts == -1 || val == null) {
+			return null;
+		}
+		DBEntry entry = new DBEntry();
+		entry.setTs(ts);
+		entry.setValue(val);
+		if (exp != -1) {
+			entry.setExpiration(exp);
+		}
+		return entry;
+	}
+	
+	public static DBEntry parseRecord(JsonArray ja) {
+		if (ja.size() < 2) {
+			return null;
+		}
+		long ts = parseTs(ja.get(0));
+		int startInd = 0;
+		if (ts == -1) {
+			startInd = 1;
+			ts = parseTs(ja.get(1));
+		}
+		if (ts == -1) {
+			return null;
+		}
+		if (startInd + 1 >= ja.size()) {
+			return null;
+		}
+		String val = ja.get(startInd + 1).toString();
+		long exp = startInd + 2 < ja.size() ? parseTs(ja.get(startInd + 2)) : -1;
+		
+		DBEntry entry = new DBEntry();
+		entry.setTs(ts);
+		entry.setValue(val);
+		if (exp != -1) {
+			entry.setExpiration(exp);
+		}
+		return entry;
+	}
+	
+	public static long parseTs(Object o) {
+		if (o instanceof String ) {
+			try {
+				return TimeUtils.decode(o.toString());
+			} catch (Exception e) {
+			}
+		}
+		return -1;
+	}
+	
 
 }

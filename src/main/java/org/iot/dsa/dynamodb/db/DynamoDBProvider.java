@@ -14,11 +14,12 @@ import org.dsa.iot.dslink.node.actions.EditorType;
 import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValueType;
+import org.dsa.iot.dslink.util.TimeUtils;
 import org.dsa.iot.dslink.util.handler.Handler;
+import org.dsa.iot.dslink.util.json.JsonArray;
 import org.dsa.iot.historian.database.Database;
 import org.dsa.iot.historian.database.DatabaseProvider;
 import org.dsa.iot.historian.database.Watch;
-import org.dsa.iot.historian.utils.TimeParser;
 import org.iot.dsa.dynamodb.Main;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
@@ -214,14 +215,58 @@ public class DynamoDBProvider extends DatabaseProvider {
                 Value vTR = event.getParameter("Timerange");
                 if (vTR != null) {
                     String[] split = vTR.getString().split("/");
-                    fromTs = TimeParser.parse(split[0]);
-                    toTs = TimeParser.parse(split[1]);
+                    fromTs = TimeUtils.decode(split[0]);
+                    toTs = TimeUtils.decode(split[1]);
                 }
                 DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
         		db.delete(watch.getPath(), fromTs, toTs);
             }
         });
         a.addParameter(new Parameter("Timerange", ValueType.STRING).setEditorType(EditorType.DATE_RANGE).setDescription("The range for which to purge data"));
+        b.setAction(a);
+        b.build();
+        
+        b = node.createChild("insert", true).setDisplayName("Insert Record");
+        a = new Action(perm, new Handler<ActionResult>() {
+			@Override
+			public void handle(ActionResult event) {
+				Value vTs = event.getParameter(Util.TS, ValueType.STRING);
+				Value val = event.getParameter(Util.VALUE, ValueType.STRING);
+				Value vExp = event.getParameter(Util.TTL, ValueType.STRING);
+				if (vTs != null && val != null && vExp != null) {
+					long ts = TimeUtils.decode(vTs.getString());
+					long exp = TimeUtils.decode(vExp.getString());
+					DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+					db.write(watch.getPath(), val, ts, exp);
+				}
+			}
+		});
+        DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+        a.addParameter(new Parameter(Util.TS, ValueType.STRING));
+        a.addParameter(new Parameter(Util.VALUE, ValueType.STRING));
+        a.addParameter(new Parameter(Util.TTL, ValueType.STRING, new Value(TimeUtils.format(db.getExpiration()))));
+        b.setAction(a);
+        b.build();
+        
+        b = node.createChild("bulkInsert", true).setDisplayName("Bulk Insert Records");
+        a = new Action(perm, new Handler<ActionResult>() {
+			@Override
+			public void handle(ActionResult event) {
+				DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+				JsonArray ja = event.getParameter("Records", ValueType.ARRAY).getArray();
+				List<DBEntry> entries = new ArrayList<DBEntry>();
+				for (Object o: ja) {
+					DBEntry entry = Util.parseRecord(o);
+					entry.setWatchPath(watch.getPath());
+					if (entry.getExpiration() == null) {
+						entry.setExpiration(db.getExpiration());
+					}
+					entries.add(entry);
+				}
+				db.batchWrite(entries);
+			}
+		});
+        a.addParameter(new Parameter("Records", ValueType.ARRAY));
         b.setAction(a);
         b.build();
 	}
