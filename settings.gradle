@@ -16,4 +16,4 @@ include 'api'
 include 'services:webservice'
 */
 
-rootProject.name = 'dslink-java-dynamodb'
+rootProject.name = 'dslink-java-historian-dynamodb'

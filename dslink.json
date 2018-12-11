@@ -1,23 +1,23 @@
 {
-  "name": "dslink-java-dynamodb",
-  "version": "0.0.3",
+  "name": "dslink-java-historian-dynamodb",
+  "version": "0.0.4",
   "description": "Historian DSLink implementation for DynamoDB",
   "license": "Apache",
   "author": {
     "name": "Daniel Shapiro"
   },
-  "main": "bin/dslink-java-dynamodb",
+  "main": "bin/dslink-java-historian-dynamodb",
   "repository": {
     "type": "git",
-    "url": "https://github.com/IOT-DSA/dslink-java-dynamodb"
+    "url": "https://github.com/IOT-DSA/dslink-java-historian-dynamodb"
   },
   "bugs": {
-    "url": "https://github.com/IOT-DSA/dslink-java-dynamodb/issues"
+    "url": "https://github.com/IOT-DSA/dslink-java-historian-dynamodb/issues"
   },
   "configs": {
     "name": {
       "type": "string",
-      "default": "dynamodb"
+      "default": "DynamoDB Historian"
     },
     "broker": {
       "type": "url"
