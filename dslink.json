@@ -17,7 +17,7 @@
   "configs": {
     "name": {
       "type": "string",
-      "default": "DynamoDB Historian"
+      "default": "dynamodb-historian"
     },
     "broker": {
       "type": "url"
