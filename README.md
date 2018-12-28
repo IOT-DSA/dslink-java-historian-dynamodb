@@ -42,4 +42,10 @@ This action creates a node that acts as a folder for grouping watch paths, and w
   - If strings: Same as arrays, but represented as strings.
   - Also note that the table output by a GetHistory action (of this DSLink or the ETSDB DSLink) can be used as input to this action.
 
-  
+### Time-To-Live Settings
+
+Since DynamoDB does not distinguish between delete and write operations, automatically purging older records can be expensive. Instead, DynamoDB provides TTL functionality, allowing us to specify, when creating a record, when Amazon should automoatically delete that record. To make use of this, whenever the DSLink creates a record, it gives it an `expiration` attribute - the date and time the record should be deleted if TTL is enabled. How many days in the future to set the expiration is specified under the database node, in the value `Default TTL for New Records (Days)`. The default value is 4 years. Also under the database node is the boolean value `TTL Enabled`. When this is set to `true`, Amazon will automatically delete records whose expiration dates are in the past.
+
+### GetHistory Aliases
+
+When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets the GetHistory alias (`@@GetHistory`) on the point being trended to the path of the GetHistory action of that watch path in the DSLink. A node can only have one GetHistory alias, so if multiple DSLinks trend the same point, then the GetHistory alias of that point will refer to whichever DSLink added the point last. This can be changed by calling the `Restore GetHistory aliases` action on the desired DSLink. 
