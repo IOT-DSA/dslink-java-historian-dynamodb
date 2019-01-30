@@ -87,6 +87,8 @@ public class DynamoDBProvider extends DatabaseProvider {
 			            LOGGER.error(e.getMessage());
 			            tableName = null;
 					}
+				} else if (Util.OTHER_TABLE_OPTION.equals(tableName)) {
+					tableName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING).getString();
 				}
 				if (tableName != null) {
 					NodeBuilder builder = createDbNode(tableName, event);
@@ -96,6 +98,7 @@ public class DynamoDBProvider extends DatabaseProvider {
 		});
 		List<String> dropdown = new LinkedList<String>();
         dropdown.add(Util.NEW_TABLE_OPTION);
+        dropdown.add(Util.OTHER_TABLE_OPTION);
         
         try {
 			TableCollection<ListTablesResult> tables = dynamoDB.listTables();
@@ -108,9 +111,9 @@ public class DynamoDBProvider extends DatabaseProvider {
         	LOGGER.warn("", e);
         }
 		act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown), new Value(Util.NEW_TABLE_OPTION)));
-		act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription("Only applicable when creating a new table"));
-		act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L)));
-		act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L)));
+		act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription("Only applicable when choosing 'Create new table' or 'Other table'"));
+		act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L)).setDescription("Only applicable when creating new table"));
+		act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L)).setDescription("Only applicable when creating new table"));
 		return act;
 	}
 	

@@ -10,11 +10,12 @@ public class Util {
 	public static final String CREDENTIALS = "Credentials";
 	public static final String ACCESS_ID = "Access Key ID";
 	public static final String ACCESS_SECRET = "Secret Access Key";
-	public static final String NEW_TABLE_OPTION = "CREATE NEW TABLE";
+	public static final String NEW_TABLE_OPTION = "Create new table";
+	public static final String OTHER_TABLE_OPTION = "Other table";
 	public static final String EXISTING_TABLE_NAME = "Table";
-	public static final String NEW_TABLE_NAME = "New Table Name";
-	public static final String NEW_TABLE_RCU = "New Table Read Capacity Units";
-	public static final String NEW_TABLE_WCU = "New Table Write Capacity Units";
+	public static final String NEW_TABLE_NAME = "Name";
+	public static final String NEW_TABLE_RCU = "Read Capacity Units";
+	public static final String NEW_TABLE_WCU = "Write Capacity Units";
 	public static final String RCU = "Read Capacity Units";
 	public static final String WCU = "Write Capacity Units";
 	

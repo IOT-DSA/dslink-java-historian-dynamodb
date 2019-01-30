@@ -1,6 +1,7 @@
 package org.iot.dsa.dynamodb;
 
 import org.dsa.iot.dslink.node.Node;
+import org.dsa.iot.dslink.node.NodeBuilder;
 import org.dsa.iot.dslink.node.Permission;
 import org.dsa.iot.dslink.node.actions.Action;
 import org.dsa.iot.dslink.node.actions.ActionResult;
@@ -115,4 +116,13 @@ public class Main extends Historian implements AWSCredentialsProvider {
 	public void refresh() {
 		//no-op
 	}
+	
+	@Override
+	protected void initAddDb(Node node) {
+        NodeBuilder b = node.createChild("addDb", false);
+        b.setSerializable(false);
+        b.setDisplayName("Add Table");
+        b.setAction(provider.createDbAction(provider.dbPermission()));
+        b.build();
+    }
 }
