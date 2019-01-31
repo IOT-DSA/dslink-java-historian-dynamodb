@@ -1,9 +1,11 @@
 package org.iot.dsa.dynamodb.db;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.NodeBuilder;
@@ -27,7 +29,6 @@ import org.slf4j.LoggerFactory;
 
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig.TableNameOverride;
@@ -52,14 +53,32 @@ public class DynamoDBProvider extends DatabaseProvider {
 	
 	private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProvider.class);
 	
-	private AmazonDynamoDB client;// = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
-    private DynamoDB dynamoDB;// = new DynamoDB(client);
+	private Map<Regions, DynamoDBRegion> regionMap = new HashMap<Regions, DynamoDBRegion>();
 //	private final DynamoDBPurger purger = new DynamoDBPurger();
 
     public DynamoDBProvider() {
 //        purger.setupPurger();
-    	client = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
-    	dynamoDB = new DynamoDB(client);
+    }
+    
+    private DynamoDBRegion getRegionObject(Regions region) {
+    	DynamoDBRegion regionObj = regionMap.get(region);
+    	if (regionObj == null) {
+    		regionObj = new DynamoDBRegion(region);
+    		regionMap.put(region, regionObj);
+    	}
+    	return regionObj;
+    }
+    
+    private AmazonDynamoDB getClient(Regions region) {
+    	return getRegionObject(region).getClient();
+    }
+    
+    private DynamoDB getDynamoDB(Regions region) {
+    	return getRegionObject(region).getDynamoDB();
+    }
+    
+    private DynamoDB getDynamoDB() {
+    	return getDynamoDB(Main.getInstance().getDefaultRegion());
     }
 
 //    public DynamoDBPurger getPurger() {
@@ -76,12 +95,13 @@ public class DynamoDBProvider extends DatabaseProvider {
 			@Override
 			public void handle(ActionResult event) {
 				String tableName = event.getParameter(Util.EXISTING_TABLE_NAME).getString();
+				Regions region = Regions.fromName(event.getParameter(Util.REGION).getString());
 				if (Util.NEW_TABLE_OPTION.equals(tableName)) {
 					tableName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING).getString();
 					long rcu = event.getParameter(Util.NEW_TABLE_RCU, ValueType.NUMBER).getNumber().longValue();
 					long wcu = event.getParameter(Util.NEW_TABLE_WCU, ValueType.NUMBER).getNumber().longValue();
 					try {
-						createTable(tableName, rcu, wcu);
+						createTable(tableName, region, rcu, wcu);
 					} catch (Exception e) {
 						LOGGER.error("CreateTable request failed for " + tableName);
 			            LOGGER.error(e.getMessage());
@@ -92,6 +112,7 @@ public class DynamoDBProvider extends DatabaseProvider {
 				}
 				if (tableName != null) {
 					NodeBuilder builder = createDbNode(tableName, event);
+					builder.setRoConfig(Util.REGION, new Value(region.getName()));
 					createAndInitDb(builder.build());
 				}
 			}
@@ -101,7 +122,7 @@ public class DynamoDBProvider extends DatabaseProvider {
         dropdown.add(Util.OTHER_TABLE_OPTION);
         
         try {
-			TableCollection<ListTablesResult> tables = dynamoDB.listTables();
+			TableCollection<ListTablesResult> tables = getDynamoDB().listTables();
 	        Iterator<Table> iterator = tables.iterator();
 	        while (iterator.hasNext()) {
 	            Table table = iterator.next();
@@ -111,13 +132,14 @@ public class DynamoDBProvider extends DatabaseProvider {
         	LOGGER.warn("", e);
         }
 		act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown), new Value(Util.NEW_TABLE_OPTION)));
+		act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(Util.getRegionList()), new Value(Main.getInstance().getDefaultRegion().getName())));
 		act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription("Only applicable when choosing 'Create new table' or 'Other table'"));
 		act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L)).setDescription("Only applicable when creating new table"));
 		act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L)).setDescription("Only applicable when creating new table"));
 		return act;
 	}
 	
-	private void createTable(String tableName, long rcu, long wcu) throws Exception {
+	private void createTable(String tableName, Regions region,  long rcu, long wcu) throws Exception {
         List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY).withAttributeType("S"));
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY).withAttributeType("N"));
@@ -133,16 +155,16 @@ public class DynamoDBProvider extends DatabaseProvider {
         		.withAttributeDefinitions(attributeDefinitions)
         		.withProvisionedThroughput(new ProvisionedThroughput()
         				.withReadCapacityUnits(rcu).withWriteCapacityUnits(wcu));
-        Table table = dynamoDB.createTable(request);
+        Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
 	}
 	
-	TableDescription getTableInfo(String tableName) {
-		Table table = dynamoDB.getTable(tableName);
+	TableDescription getTableInfo(String tableName, Regions region) {
+		Table table = getDynamoDB(region).getTable(tableName);
 		return table.describe();
 	}
 	
-	void updateTTL(String tableName, boolean enabled) {
+	void updateTTL(String tableName, Regions region, boolean enabled) {
 		TimeToLiveSpecification ttlSpec = new TimeToLiveSpecification()
         		.withAttributeName(Util.TTL)
         		.withEnabled(enabled);
@@ -150,22 +172,22 @@ public class DynamoDBProvider extends DatabaseProvider {
         		.withTableName(tableName)
         		.withTimeToLiveSpecification(ttlSpec);
 		try {
-			client.updateTimeToLive(ttlReq);
+			getClient(region).updateTimeToLive(ttlReq);
 		} catch (AmazonDynamoDBException e) {
 			LOGGER.debug("" ,e);
 		}
 	}
 	
-	TimeToLiveDescription getTTLInfo(String tableName) {
+	TimeToLiveDescription getTTLInfo(String tableName, Regions region) {
 		DescribeTimeToLiveRequest getTTLReq = new DescribeTimeToLiveRequest()
 				.withTableName(tableName);
-		DescribeTimeToLiveResult result = client.describeTimeToLive(getTTLReq);
+		DescribeTimeToLiveResult result = getClient(region).describeTimeToLive(getTTLReq);
 		return result.getTimeToLiveDescription();
 	}
 	
-	void updateTable(String tableName, long rcu, long wcu) {
+	void updateTable(String tableName, Regions region, long rcu, long wcu) {
 		try {
-			Table table = dynamoDB.getTable(tableName);
+			Table table = getDynamoDB(region).getTable(tableName);
 			table.updateTable(new ProvisionedThroughput().withReadCapacityUnits(rcu).withWriteCapacityUnits(wcu));
 			table.waitForActive();
 		} catch (Exception e) {
@@ -180,7 +202,8 @@ public class DynamoDBProvider extends DatabaseProvider {
 		DynamoDBMapperConfig mapperConfig = DynamoDBMapperConfig.builder()
 				.withTableNameOverride(TableNameOverride.withTableNameReplacement(tableName))
 				.build();
-		DynamoDBMapper mapper = new DynamoDBMapper(client, mapperConfig);
+		Regions region = Util.getRegionFromNode(node);
+		DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
 		return new DynamoDBProxy(tableName, this, mapper);
 	}
 

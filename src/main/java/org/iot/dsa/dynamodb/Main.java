@@ -17,6 +17,7 @@ import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.regions.Regions;
 
 /**
  * @author Daniel Shapiro
@@ -50,6 +51,7 @@ public class Main extends Historian implements AWSCredentialsProvider {
 		this.rootNode = node;
 		super.initialize(node);
 		makeSetCredentialsAction(node);
+		makeSetDefaultRegionAction(node);
 	}
 	
 	void makeSetCredentialsAction(final Node node) {
@@ -65,6 +67,9 @@ public class Main extends Historian implements AWSCredentialsProvider {
 				if (idV != null && secV != null) {
 					credNode.setRoConfig(Util.ACCESS_ID, idV);
 					credNode.setPassword(secV.getString().toCharArray());
+					if (credNode.getRoConfig(Util.REGION) == null) {
+						credNode.setRoConfig(Util.REGION, new Value(Regions.US_WEST_1.getName()));
+					}
 				} else {
 					credNode.removeRoConfig(Util.ACCESS_ID);
 				}
@@ -72,7 +77,7 @@ public class Main extends Historian implements AWSCredentialsProvider {
 			}
 		});
 		Node credNode = node.getChild(Util.CREDENTIALS, true);
-		Value idV = credNode == null ? null : node.getRoConfig(Util.ACCESS_ID);
+		Value idV = credNode == null ? null : credNode.getRoConfig(Util.ACCESS_ID);
 		if (idV != null) {
 			act.addParameter(new Parameter(Util.ACCESS_ID, ValueType.STRING, idV));
 		} else {
@@ -82,6 +87,38 @@ public class Main extends Historian implements AWSCredentialsProvider {
 		Node anode = node.getChild(Util.ACT_SET_CREDENTIALS, true);
 		if (anode == null) {
 			node.createChild(Util.ACT_SET_CREDENTIALS, true).setAction(act).build().setSerializable(false);
+		} else {
+			anode.setAction(act);
+		}
+	}
+	
+	void makeSetDefaultRegionAction(final Node node) {
+		Action act = new Action(Permission.READ, new Handler<ActionResult>() {
+			@Override
+			public void handle(ActionResult event) {
+				Node credNode = node.getChild(Util.CREDENTIALS, true);
+				if (credNode == null) {
+					credNode = node.createChild(Util.CREDENTIALS, true).setHidden(true).build();
+				}
+				Value regionV = event.getParameter(Util.REGION);
+				if (regionV != null) {
+					credNode.setRoConfig(Util.REGION, regionV);
+				}
+				initialize(node);
+				
+			}
+		});
+		Node credNode = node.getChild(Util.CREDENTIALS, true);
+		Value regionV = credNode == null ? null : credNode.getRoConfig(Util.REGION);
+		String[] regionEnum = Util.getRegionList();
+		if (regionV != null) {
+			act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(regionEnum), regionV));
+		} else {
+			act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(regionEnum), new Value(Regions.US_WEST_1.getName())));
+		}
+		Node anode = node.getChild(Util.ACT_SET_REGION, true);
+		if (anode == null) {
+			node.createChild(Util.ACT_SET_REGION, true).setAction(act).build().setSerializable(false);
 		} else {
 			anode.setAction(act);
 		}
@@ -110,6 +147,19 @@ public class Main extends Historian implements AWSCredentialsProvider {
 			}
 		}
 		return DefaultAWSCredentialsProviderChain.getInstance().getCredentials();
+	}
+	
+	public Regions getDefaultRegion() {
+		Node credNode = rootNode.getChild(Util.CREDENTIALS, true);
+		Value regionV = credNode == null ? null : credNode.getRoConfig(Util.REGION);
+		if (regionV != null) {
+			try {
+				return Regions.fromName(regionV.getString());
+			} catch (IllegalArgumentException e) {
+				return Regions.US_WEST_1;
+			}
+		}
+		return Regions.US_WEST_1;
 	}
 
 	@Override

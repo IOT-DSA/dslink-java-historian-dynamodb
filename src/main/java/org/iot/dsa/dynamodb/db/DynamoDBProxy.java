@@ -29,6 +29,7 @@ import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression;
 import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
@@ -73,9 +74,9 @@ public class DynamoDBProxy extends Database {
         this.provider = provider;
     }
 	
-	void setTTLEnabled(String tableName, boolean enabled) {
-		provider.updateTTL(tableName, enabled);
-		refreshTTLStatus(tableName);
+	void setTTLEnabled(String tableName, Regions region, boolean enabled) {
+		provider.updateTTL(tableName, region, enabled);
+		refreshTTLStatus(tableName, region);
 	}
 	
 	public long getExpiration() {
@@ -237,7 +238,8 @@ public class DynamoDBProxy extends Database {
         	stpe.schedule(new Runnable() {
 				@Override
 				public void run() {
-					setTTLEnabled(node.getName(), ttlEnabledNode.getValue().getBool());
+					Regions region = Util.getRegionFromNode(node);
+					setTTLEnabled(node.getName(), region, ttlEnabledNode.getValue().getBool());
 				}
 			}, 0, TimeUnit.MILLISECONDS);
         }
@@ -245,7 +247,8 @@ public class DynamoDBProxy extends Database {
 			@Override
 			public void handle(ValuePair event) {
 				if (event.isFromExternalSource()) {
-					setTTLEnabled(node.getName(), event.getCurrent().getBool());
+					Regions region = Util.getRegionFromNode(node);
+					setTTLEnabled(node.getName(), region, event.getCurrent().getBool());
 				}
 			}      	
         });
@@ -264,7 +267,8 @@ public class DynamoDBProxy extends Database {
 	}
 
 	protected void refreshTableDetails(final Node node) {
-		TableDescription tableInfo = provider.getTableInfo(node.getName());
+		Regions region = Util.getRegionFromNode(node);
+		TableDescription tableInfo = provider.getTableInfo(node.getName(), region);
 		
 		List<AttributeDefinition> attrDefs = tableInfo.getAttributeDefinitions();
 		if (attrDefs != null) {
@@ -340,7 +344,8 @@ public class DynamoDBProxy extends Database {
 				public void handle(ActionResult event) {
 					long rcu = event.getParameter(Util.RCU, ValueType.NUMBER).getNumber().longValue();
 					long wcu = event.getParameter(Util.WCU, ValueType.NUMBER).getNumber().longValue();
-					provider.updateTable(node.getName(), rcu, wcu);
+					Regions region = Util.getRegionFromNode(node);
+					provider.updateTable(node.getName(), region, rcu, wcu);
 					refreshTableDetails(node);
 				}
 			});
@@ -377,11 +382,11 @@ public class DynamoDBProxy extends Database {
 			tableStatusNode.setValue(new Value(tableStatus));
 		}
 		
-		refreshTTLStatus(tableName);
+		refreshTTLStatus(tableName, region);
 	}
 	
-	private void refreshTTLStatus(String tableName) {
-		TimeToLiveDescription ttlDesc = provider.getTTLInfo(tableName);
+	private void refreshTTLStatus(String tableName, Regions region) {
+		TimeToLiveDescription ttlDesc = provider.getTTLInfo(tableName, region);
 		if (ttlDesc != null) {
 			String ttlStatus = ttlDesc.getTimeToLiveStatus();
 			if (ttlStatus != null) {

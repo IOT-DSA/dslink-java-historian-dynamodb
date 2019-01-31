@@ -1,15 +1,20 @@
 package org.iot.dsa.dynamodb;
 
+import org.dsa.iot.dslink.node.Node;
+import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.util.TimeUtils;
 import org.dsa.iot.dslink.util.json.JsonArray;
 import org.dsa.iot.dslink.util.json.JsonObject;
 import org.iot.dsa.dynamodb.db.DBEntry;
+
+import com.amazonaws.regions.Regions;
 
 public class Util {
 	
 	public static final String CREDENTIALS = "Credentials";
 	public static final String ACCESS_ID = "Access Key ID";
 	public static final String ACCESS_SECRET = "Secret Access Key";
+	public static final String REGION = "Region";
 	public static final String NEW_TABLE_OPTION = "Create new table";
 	public static final String OTHER_TABLE_OPTION = "Other table";
 	public static final String EXISTING_TABLE_NAME = "Table";
@@ -20,6 +25,7 @@ public class Util {
 	public static final String WCU = "Write Capacity Units";
 	
 	public static final String ACT_SET_CREDENTIALS = "Set Credentials";
+	public static final String ACT_SET_REGION = "Set Default Region";
 	public static final String EDIT_TABLE = "Edit";
 	
 	public static final String WATCH_PATH_KEY = "watchPath";
@@ -119,6 +125,25 @@ public class Util {
 			}
 		}
 		return -1;
+	}
+	
+	public static String[] getRegionList() {
+		Regions[] regions = Regions.values();
+		String[] regionStrings = new String[regions.length];
+		for (int i = 0; i < regions.length; i++) {
+			Regions r = regions[i];
+			regionStrings[i] = r.getName();
+		}
+		return regionStrings;
+	}
+	
+	public static Regions getRegionFromNode(Node node) {
+		Value rVal = node.getRoConfig(REGION);
+		if (rVal == null) {
+			node.setRoConfig(REGION, new Value(Regions.US_WEST_1.getName()));
+			return Regions.US_WEST_1;
+		}
+		return Regions.fromName(rVal.getString());
 	}
 	
 
