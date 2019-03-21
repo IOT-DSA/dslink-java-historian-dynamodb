@@ -49,3 +49,18 @@ Since DynamoDB does not distinguish between delete and write operations, automat
 ### GetHistory Aliases
 
 When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets the GetHistory alias (`@@GetHistory`) on the point being trended to the path of the GetHistory action of that watch path in the DSLink. A node can only have one GetHistory alias, so if multiple DSLinks trend the same point, then the GetHistory alias of that point will refer to whichever DSLink added the point last. This can be changed by calling the `Restore GetHistory aliases` action on the desired DSLink. 
+
+--------------------------------------------------------------------------------------------
+## Screenshots
+
+### Bulk Insert in map format <a name="screenshot1"></a>
+<img src="docs/bulkinsertmap.PNG" width=70% />
+
+### Bulk Insert in array format <a name="screenshot1"></a>
+<img src="docs/bulkinserttable.PNG" width=70% />
+
+### Bulk Insert in string format <a name="screenshot1"></a>
+<img src="docs/bulkinsertstrings.PNG" width=70% />
+
+### Bulk Insert from other historian's getHistory <a name="screenshot1"></a>
+<img src="docs/bulkinsertfromhistory.PNG" width=70% />
