@@ -37,10 +37,10 @@ This action creates a node that acts as a folder for grouping watch paths, and w
 - `Overwrite History` - For the specified time range, rewrite the records for this watch path to contain the specified value.
 - `Insert Record` - Manually insert a record into the database.
 - `Bulk Insert Records` - Manually insert multiple records into the database. This action takes an array of records, which can be in the form of maps, arrays, or strings:
-  - If maps: Each record should contain values for `timestamp`, `value`, and optionally `expiration`
-  - If arrays: Each record should contain its timestamp, followed by its value, optionally followed by its expiration. It is also ok if the record starts with an id.
-  - If strings: Same as arrays, but represented as strings.
-  - Also note that the table output by a GetHistory action (of this DSLink or the ETSDB DSLink) can be used as input to this action.
+  - If maps: Each record should contain values for `timestamp`, `value`, and optionally `expiration`. ([example](#screenshot1)) (This method is pretty clunky)
+  - If arrays: Each record should contain its timestamp, followed by its value, optionally followed by its expiration. It is also ok if the record starts with an id. ([example](#screenshot2)) (This is probably the easiest method)
+  - If strings: Same as arrays, but represented as strings. ([example](#screenshot3))
+  - Also note that the table output by a GetHistory action (of this DSLink or the ETSDB DSLink) can be used as input to this action. ([example](#screenshot4))
 
 ### Time-To-Live Settings
 
@@ -49,3 +49,18 @@ Since DynamoDB does not distinguish between delete and write operations, automat
 ### GetHistory Aliases
 
 When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets the GetHistory alias (`@@GetHistory`) on the point being trended to the path of the GetHistory action of that watch path in the DSLink. A node can only have one GetHistory alias, so if multiple DSLinks trend the same point, then the GetHistory alias of that point will refer to whichever DSLink added the point last. This can be changed by calling the `Restore GetHistory aliases` action on the desired DSLink. 
+
+--------------------------------------------------------------------------------------------
+## Screenshots
+
+### Bulk Insert in map format <a name="screenshot1"></a>
+<img src="docs/bulkinsertmap.PNG"  />
+
+### Bulk Insert in array format <a name="screenshot2"></a>
+<img src="docs/bulkinserttable.PNG"  />
+
+### Bulk Insert in string format <a name="screenshot3"></a>
+<img src="docs/bulkinsertstrings.PNG"  />
+
+### Bulk Insert from other historian's getHistory <a name="screenshot4"></a>
+<img src="docs/bulkinsertfromhistory.PNG" />
