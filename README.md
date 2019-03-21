@@ -54,13 +54,13 @@ When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets
 ## Screenshots
 
 ### Bulk Insert in map format <a name="screenshot1"></a>
-<img src="docs/bulkinsertmap.PNG" width=70% />
+<img src="docs/bulkinsertmap.PNG"  />
 
-### Bulk Insert in array format <a name="screenshot1"></a>
-<img src="docs/bulkinserttable.PNG" width=70% />
+### Bulk Insert in array format <a name="screenshot2"></a>
+<img src="docs/bulkinserttable.PNG"  />
 
-### Bulk Insert in string format <a name="screenshot1"></a>
-<img src="docs/bulkinsertstrings.PNG" width=70% />
+### Bulk Insert in string format <a name="screenshot3"></a>
+<img src="docs/bulkinsertstrings.PNG"  />
 
-### Bulk Insert from other historian's getHistory <a name="screenshot1"></a>
-<img src="docs/bulkinsertfromhistory.PNG" width=70% />
+### Bulk Insert from other historian's getHistory <a name="screenshot4"></a>
+<img src="docs/bulkinsertfromhistory.PNG" />
