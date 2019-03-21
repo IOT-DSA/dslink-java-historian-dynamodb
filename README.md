@@ -38,13 +38,13 @@ This action creates a node that acts as a folder for grouping watch paths, and w
 - `Insert Record` - Manually insert a record into the database.
 - `Bulk Insert Records` - Manually insert multiple records into the database. This action takes an array of records, which can be in the form of maps, arrays, or strings:
   - If maps: Each record should contain values for `timestamp`, `value`, and optionally `expiration`. (This method is pretty clunky)
-  <img src="docs/bulkinsertmap.PNG" width=70% />
+    <img src="docs/bulkinsertmap.PNG" width=70% />
   - If arrays: Each record should contain its timestamp, followed by its value, optionally followed by its expiration. It is also ok if the record starts with an id. (This is probably the easiest method)
-  <img src="docs/bulkinserttable.PNG" width=70% />
+    <img src="docs/bulkinserttable.PNG" width=70% />
   - If strings: Same as arrays, but represented as strings.
-  <img src="docs/bulkinsertstrings.PNG" width=70% />
+    <img src="docs/bulkinsertstrings.PNG" width=70% />
   - Also note that the table output by a GetHistory action (of this DSLink or the ETSDB DSLink) can be used as input to this action.
-  <img src="docs/bulkinsertfromhistory.PNG" width=70% />
+    <img src="docs/bulkinsertfromhistory.PNG" width=70% />
 
 ### Time-To-Live Settings
 
