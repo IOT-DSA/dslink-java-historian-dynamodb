@@ -37,7 +37,7 @@ This action creates a node that acts as a folder for grouping watch paths, and w
 - `Overwrite History` - For the specified time range, rewrite the records for this watch path to contain the specified value.
 - `Insert Record` - Manually insert a record into the database.
 - `Bulk Insert Records` - Manually insert multiple records into the database. This action takes an array of records, which can be in the form of maps, arrays, or strings:
-  - If maps: Each record should contain values for `timestamp`, `value`, and optionally `expiration`. ([example](docs/bulkinsertmap.PNG)) (This method is pretty clunky)
+  - If maps: Each record should contain values for `timestamp`, `value`, and optionally `expiration`. (This method is pretty clunky)(![](docs/bulkinsertmap.PNG)) 
   - If arrays: Each record should contain its timestamp, followed by its value, optionally followed by its expiration. It is also ok if the record starts with an id. ([example](docs/bulkinserttable.PNG)) (This is probably the easiest method)
   - If strings: Same as arrays, but represented as strings. ([example](docs/bulkinsertstrings.PNG))
   - Also note that the table output by a GetHistory action (of this DSLink or the ETSDB DSLink) can be used as input to this action. ([example](docs/bulkinsertfromhistory.PNG))
