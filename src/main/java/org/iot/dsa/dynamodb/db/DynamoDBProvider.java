@@ -280,16 +280,7 @@ public class DynamoDBProvider extends DatabaseProvider {
 			public void handle(ActionResult event) {
 				DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
 				JsonArray ja = event.getParameter("Records", ValueType.ARRAY).getArray();
-				List<DBEntry> entries = new ArrayList<DBEntry>();
-				for (Object o: ja) {
-					DBEntry entry = Util.parseRecord(o);
-					entry.setWatchPath(watch.getPath());
-					if (entry.getExpiration() == null) {
-						entry.setExpiration(db.getExpiration());
-					}
-					entries.add(entry);
-				}
-				db.batchWrite(entries);
+				db.batchWrite(watch.getPath(), ja);
 			}
 		});
         a.addParameter(new Parameter("Records", ValueType.ARRAY));

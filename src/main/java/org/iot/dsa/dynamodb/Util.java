@@ -34,6 +34,8 @@ public class Util {
 	public static final String TTL = "expiration";
 	public static final String TS = "timestamp";
 	
+	public static final String PREFIX_ENABLED = "Prefix Enabled";
+	public static final String PREFIX_VALUE = "Prefix";
 	public static final String ATTR_DEFINITIONS = "Attribute Definitions";
 	public static final String CREATION_DATETIME = "Creation Date";
 	public static final String GLOBAL_SECONDARY_INDICES = "Global Secondary Indices";

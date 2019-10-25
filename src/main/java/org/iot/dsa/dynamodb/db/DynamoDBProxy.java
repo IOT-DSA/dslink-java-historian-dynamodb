@@ -1,5 +1,6 @@
 package org.iot.dsa.dynamodb.db;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -8,12 +9,14 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.dsa.iot.dslink.DSLink;
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.Permission;
 import org.dsa.iot.dslink.node.Writable;
 import org.dsa.iot.dslink.node.actions.Action;
 import org.dsa.iot.dslink.node.actions.ActionResult;
 import org.dsa.iot.dslink.node.actions.Parameter;
+import org.dsa.iot.dslink.node.value.SubscriptionValue;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValuePair;
 import org.dsa.iot.dslink.node.value.ValueType;
@@ -25,6 +28,7 @@ import org.dsa.iot.dslink.util.json.JsonArray;
 import org.dsa.iot.dslink.util.json.JsonObject;
 import org.dsa.iot.historian.database.Database;
 import org.dsa.iot.historian.utils.QueryData;
+import org.iot.dsa.dynamodb.Main;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +53,8 @@ public class DynamoDBProxy extends Database {
     private final DynamoDBMapper mapper;
     ScheduledFuture<?> tableInfoPoller;
     
+    private Node prefixEnabledNode;
+    private Node prefixNode;
     private Node attrDefsNode;
     private Node creationNode;
     private Node gsisNode;
@@ -65,8 +71,7 @@ public class DynamoDBProxy extends Database {
 	private Node tableStatusNode;
 	private Node ttlEnabledNode;
 	private Node ttlDefaultDaysNode;
-	private Node ttlStatusNode;
- 
+	private Node ttlStatusNode; 
 	
 	public DynamoDBProxy(String name, DynamoDBProvider provider, DynamoDBMapper mapper) {
         super(name, provider);
@@ -92,9 +97,23 @@ public class DynamoDBProxy extends Database {
 		mapper.batchSave(entries);
 	}
 	
+	public void batchWrite(String path, JsonArray records) {
+	    List<DBEntry> entries = new ArrayList<DBEntry>();
+	    path = prependToPath(path);
+        for (Object o: records) {
+            DBEntry entry = Util.parseRecord(o);
+            entry.setWatchPath(path);
+            if (entry.getExpiration() == null) {
+                entry.setExpiration(getExpiration());
+            }
+            entries.add(entry);
+        }
+        batchWrite(entries);
+	}
+	
 	public void write(String path, Value value, long ts, long expiration) {
 		DBEntry entry = new DBEntry();
-		entry.setWatchPath(path);
+		entry.setWatchPath(prependToPath(path));
 		entry.setTs(ts);
 		entry.setValue(value.toString());
 		entry.setExpiration(expiration);
@@ -110,7 +129,7 @@ public class DynamoDBProxy extends Database {
 	@Override
 	public void query(String path, long from, long to, CompleteHandler<QueryData> handler) {
 		Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
-		eav.put(":v1", new AttributeValue().withS(path));
+		eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 		eav.put(":v2", new AttributeValue().withN(String.valueOf(from)));
 		eav.put(":v3", new AttributeValue().withN(String.valueOf(to)));
 
@@ -128,7 +147,7 @@ public class DynamoDBProxy extends Database {
 	@Override
 	public QueryData queryFirst(String path) {
 		Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
-		eav.put(":v1", new AttributeValue().withS(path));
+		eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 
 		DynamoDBQueryExpression<DBEntry> queryExpression = new DynamoDBQueryExpression<DBEntry>() 
 		    .withKeyConditionExpression(Util.WATCH_PATH_KEY + " = :v1")
@@ -143,7 +162,7 @@ public class DynamoDBProxy extends Database {
 	@Override
 	public QueryData queryLast(String path) {
 		Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
-		eav.put(":v1", new AttributeValue().withS(path));
+		eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 
 		DynamoDBQueryExpression<DBEntry> queryExpression = new DynamoDBQueryExpression<DBEntry>() 
 		    .withKeyConditionExpression(Util.WATCH_PATH_KEY + " = :v1")
@@ -159,7 +178,7 @@ public class DynamoDBProxy extends Database {
 	public void delete(String path, long fromTs, long toTs) {
 		
 		Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
-		eav.put(":v1", new AttributeValue().withS(path));
+		eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 		if (fromTs >= 0) {
 			eav.put(":v2", new AttributeValue().withN(String.valueOf(fromTs)));
 		}
@@ -201,6 +220,16 @@ public class DynamoDBProxy extends Database {
 	public void initExtensions(final Node node) {
 		ScheduledThreadPoolExecutor stpe = Objects.getDaemonThreadPool();
 		
+		prefixEnabledNode = node.getChild(Util.PREFIX_ENABLED, true);
+		if (prefixEnabledNode == null) {
+		    prefixEnabledNode = node.createChild(Util.PREFIX_ENABLED, true).setValueType(ValueType.BOOL).setValue(new Value(false)).build();
+		}
+		prefixEnabledNode.setWritable(Writable.WRITE);
+		prefixNode = node.getChild(Util.PREFIX_VALUE, true);
+		if (prefixNode == null) {
+		    prefixNode = node.createChild(Util.PREFIX_VALUE, true).setValueType(ValueType.STRING).setValue(new Value(getDefaultPrefix())).build();
+		}
+		prefixNode.setWritable(Writable.WRITE);
 		attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY).build();
 		attrDefsNode.setSerializable(false);
 		creationNode = node.createChild(Util.CREATION_DATETIME, true).setValueType(ValueType.STRING).build();
@@ -393,5 +422,43 @@ public class DynamoDBProxy extends Database {
 				ttlStatusNode.setValue(new Value(ttlStatus));
 			}
 		}
+	}
+	
+	private String getDefaultPrefix() {
+	    String host = Main.getInstance().getConfig().getAuthEndpoint().host;
+	    Map<String, DSLink> reqs = Main.getInstance().getProvider().getRequesters();
+	    final StringBuilder sb = new StringBuilder();
+	    sb.append(host).append('-');
+	    for (DSLink reqlink: reqs.values()) {
+	        reqlink.getRequester().subscribe("/sys/dglicense/productId", new Handler<SubscriptionValue>() {
+                @Override
+                public void handle(SubscriptionValue event) {
+                    synchronized (sb) {
+                        String prodId = event.getValue().getString();
+                        String h = Integer.toHexString(prodId.hashCode());
+                        int len = h.length();
+                        String trunchash = len >= 8 ? h.substring(0, 8) : ("00000000" + h).substring(len, 8 + len);
+                        sb.append(trunchash);
+                        sb.append(':');
+                        sb.notify();
+                    }
+                }
+	        });
+	        break;
+	    }
+	    synchronized (sb) {
+	        if (sb.charAt(sb.length() - 1) != ':') {
+	            try {
+                    sb.wait();
+                } catch (InterruptedException e) {
+                    LOGGER.warn("", e);
+                }
+	        }
+        }
+	    return sb.toString();
+	}
+	
+	private String prependToPath(String path) {
+	    return (prefixEnabledNode.getValue().getBool() ? prefixNode.getValue().getString() : "") + path;
 	}
 }
