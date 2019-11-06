@@ -449,7 +449,7 @@ public class DynamoDBProxy extends Database {
 	    synchronized (sb) {
 	        if (sb.charAt(sb.length() - 1) != ':') {
 	            try {
-                    sb.wait();
+                    sb.wait(5000);
                 } catch (InterruptedException e) {
                     LOGGER.warn("", e);
                 }
