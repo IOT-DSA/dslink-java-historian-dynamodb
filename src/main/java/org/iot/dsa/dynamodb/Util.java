@@ -53,6 +53,9 @@ public class Util {
 	public static final String TTL_ENABLED = "TTL Enabled";
 	public static final String TTL_DEFAULT = "Default TTL for New Records (Days)";
 	public static final String TTL_STATUS = "TTL Status";
+	public static final String BUFFER_PATH = "Buffer Path";
+	public static final String BUFFER_PURGE_ENABLED = "Enable Buffer Auto-Purge";
+	public static final String BUFFER_MAX_SIZE = "Maximum Buffer Size in Bytes";
 	
 	public static DBEntry parseRecord(Object o) {
 		if (o instanceof JsonObject) {
@@ -147,6 +150,4 @@ public class Util {
 		}
 		return Regions.fromName(rVal.getString());
 	}
-	
-
 }

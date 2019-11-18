@@ -1,13 +1,17 @@
 package org.iot.dsa.dynamodb.db;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.dsa.iot.dslink.DSLink;
 import org.dsa.iot.dslink.node.Node;
@@ -26,13 +30,19 @@ import org.dsa.iot.dslink.util.handler.CompleteHandler;
 import org.dsa.iot.dslink.util.handler.Handler;
 import org.dsa.iot.dslink.util.json.JsonArray;
 import org.dsa.iot.dslink.util.json.JsonObject;
+import org.dsa.iot.etsdb.serializer.ByteData;
+import org.dsa.iot.etsdb.serializer.ValueSerializer;
 import org.dsa.iot.historian.database.Database;
 import org.dsa.iot.historian.utils.QueryData;
+import org.etsdb.DatabaseFactory;
+import org.etsdb.QueryCallback;
+import org.etsdb.impl.DatabaseImpl;
 import org.iot.dsa.dynamodb.Main;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amazonaws.SdkClientException;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression;
@@ -46,12 +56,17 @@ import com.amazonaws.services.dynamodbv2.model.StreamSpecification;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
 
-public class DynamoDBProxy extends Database {
+public class DynamoDBProxy extends Database implements PurgeSettings {
 	
 	private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProxy.class);
     private final DynamoDBProvider provider;
     private final DynamoDBMapper mapper;
     ScheduledFuture<?> tableInfoPoller;
+    private final String name;
+    private DatabaseImpl<ByteData> buffer = null;
+    private boolean unsentInBuffer = false;
+    
+    private static final int MAX_BATCH_SIZE = 20;
     
     private Node prefixEnabledNode;
     private Node prefixNode;
@@ -72,11 +87,15 @@ public class DynamoDBProxy extends Database {
 	private Node ttlEnabledNode;
 	private Node ttlDefaultDaysNode;
 	private Node ttlStatusNode; 
+	private Node bufferPathNode;
+	private Node bufferPurgeEnabledNode;
+	private Node bufferMaxSizeNode;
 	
 	public DynamoDBProxy(String name, DynamoDBProvider provider, DynamoDBMapper mapper) {
         super(name, provider);
         this.mapper = mapper;
         this.provider = provider;
+        this.name = name;
     }
 	
 	void setTTLEnabled(String tableName, Regions region, boolean enabled) {
@@ -93,8 +112,14 @@ public class DynamoDBProxy extends Database {
 		return now + ttl;
 	}
 	
-	public void batchWrite(Iterable<DBEntry> entries) {
-		mapper.batchSave(entries);
+	public boolean batchWrite(Iterable<DBEntry> entries) {
+	    try {
+	        mapper.batchSave(entries);
+	        return true;
+	    } catch (SdkClientException e) {
+	        LOGGER.debug("" ,e);
+	        return false;
+	    }
 	}
 	
 	public void batchWrite(String path, JsonArray records) {
@@ -108,7 +133,9 @@ public class DynamoDBProxy extends Database {
             }
             entries.add(entry);
         }
-        batchWrite(entries);
+        if (batchWrite(entries)) {
+            checkBuffer();
+        }
 	}
 	
 	public void write(String path, Value value, long ts, long expiration) {
@@ -117,8 +144,15 @@ public class DynamoDBProxy extends Database {
 		entry.setTs(ts);
 		entry.setValue(value.toString());
 		entry.setExpiration(expiration);
-
-		mapper.save(entry);
+		
+		try {
+		    mapper.save(entry);
+		    checkBuffer();
+		} catch (SdkClientException e) {
+		    LOGGER.debug("" ,e);
+		    storeInBuffer(path, value, ts);
+		    unsentInBuffer = true;
+		}
 	}
 
 	@Override
@@ -220,6 +254,37 @@ public class DynamoDBProxy extends Database {
 	public void initExtensions(final Node node) {
 		ScheduledThreadPoolExecutor stpe = Objects.getDaemonThreadPool();
 		
+		bufferPathNode = node.getChild(Util.BUFFER_PATH, true);
+		if (bufferPathNode == null) {
+		    bufferPathNode = node.createChild(Util.BUFFER_PATH, true).setValueType(ValueType.STRING).setValue(new Value("buffers/" + name)).build();
+		}
+		bufferPathNode.setWritable(Writable.WRITE);
+		bufferPathNode.getListener().setValueHandler(new Handler<ValuePair>() {
+            @Override
+            public void handle(ValuePair event) {
+                if (!event.isFromExternalSource()) {
+                    return;
+                }
+                if (buffer != null) {
+                    try {
+                        buffer.close();
+                    } catch (IOException e) {
+                        LOGGER.warn("", e);
+                    }
+                    buffer = null;
+                }
+            }
+		});
+		bufferPurgeEnabledNode = node.getChild(Util.BUFFER_PURGE_ENABLED, true);
+		if (bufferPurgeEnabledNode == null) {
+		    bufferPurgeEnabledNode = node.createChild(Util.BUFFER_PURGE_ENABLED, true).setValueType(ValueType.BOOL).setValue(new Value(false)).build();
+		}
+		bufferPurgeEnabledNode.setWritable(Writable.WRITE);
+		bufferMaxSizeNode = node.getChild(Util.BUFFER_MAX_SIZE, true);
+		if (bufferMaxSizeNode == null) {
+		    bufferMaxSizeNode = node.createChild(Util.BUFFER_MAX_SIZE, true).setValueType(ValueType.NUMBER).setValue(new Value(1074000000)).build();
+		}
+		bufferMaxSizeNode.setWritable(Writable.WRITE);
 		prefixEnabledNode = node.getChild(Util.PREFIX_ENABLED, true);
 		if (prefixEnabledNode == null) {
 		    prefixEnabledNode = node.createChild(Util.PREFIX_ENABLED, true).setValueType(ValueType.BOOL).setValue(new Value(false)).build();
@@ -461,4 +526,80 @@ public class DynamoDBProxy extends Database {
 	private String prependToPath(String path) {
 	    return (prefixEnabledNode.getValue().getBool() ? prefixNode.getValue().getString() : "") + path;
 	}
+	
+	private void initBuffer() {
+	    String bufPath = bufferPathNode.getValue().getString();
+	    buffer = DatabaseFactory.createDatabase(new File(bufPath), new ValueSerializer());
+	    provider.getPurger().addDb(buffer, this);
+	}
+	
+	private void storeInBuffer(String path, Value value, long ts) {
+	    if (buffer == null) {
+	        initBuffer();
+	    }
+	    ByteData d = new ByteData();
+        d.setValue(value);
+	    buffer.write(path, ts, d);
+	}
+	
+	private void checkBuffer() {
+	    if (unsentInBuffer) {
+	        unsentInBuffer = !processBuffer();
+	    }
+	}
+	
+	private boolean processBuffer() {
+	    if (buffer == null) {
+            return true;
+        }
+
+        List<String> seriesIds = buffer.getSeriesIds();
+        boolean totalSuccess = true;
+        for (String series: seriesIds) {
+            totalSuccess = totalSuccess && processBuffer(series);
+        }
+        return totalSuccess;
+	}
+	
+	private boolean processBuffer(String path) {
+	    final LinkedList<DBEntry> updates = new LinkedList<DBEntry>();
+	    final AtomicLong firstTs = new AtomicLong();
+	    final AtomicLong lastTs = new AtomicLong();
+	    int count;
+	    do {
+	        updates.clear();
+	        buffer.query(path, lastTs.get(), Long.MAX_VALUE, MAX_BATCH_SIZE, new QueryCallback<ByteData>() {
+                
+                @Override
+                public void sample(String seriesId, long ts, ByteData valueData) {
+                    DBEntry entry = new DBEntry();
+                    entry.setWatchPath(prependToPath(seriesId));
+                    entry.setTs(ts);
+                    entry.setValue(valueData.getValue().toString());
+                    entry.setExpiration(getExpiration(ts));
+                    updates.add(entry);
+                }
+            });
+	        count = updates.size();
+	        boolean success = batchWrite(updates);
+	        if (success) {
+	            buffer.delete(path, firstTs.get(), lastTs.get());
+	            firstTs.set(lastTs.get());
+	        } else {
+	            return false;
+	        }
+	    } while (count >= MAX_BATCH_SIZE);
+	    return true;
+	}
+
+    @Override
+    public boolean isPurgeEnabled() {
+        return bufferPurgeEnabledNode.getValue().getBool();
+    }
+
+    @Override
+    public long getMaxSizeInBytes() {
+        return bufferMaxSizeNode.getValue().getNumber().longValue();
+    }
+	
 }
