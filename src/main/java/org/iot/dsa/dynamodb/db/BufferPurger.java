@@ -1,7 +1,6 @@
 package org.iot.dsa.dynamodb.db;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,22 +11,20 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.io.FileUtils;
 import org.dsa.iot.dslink.util.Objects;
-import org.dsa.iot.etsdb.db.Db;
 import org.dsa.iot.etsdb.db.DbPurger;
-import org.dsa.iot.etsdb.serializer.ByteData;
-import org.etsdb.Database;
 import org.etsdb.TimeRange;
 import org.etsdb.impl.DatabaseImpl;
+import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BufferPurger {
     private static final Logger LOGGER = LoggerFactory.getLogger(DbPurger.class);
-    private Map<Database<?>, PurgeSettings> databases = new HashMap<Database<?>, PurgeSettings>();
+    private Map<DatabaseImpl<?>, PurgeSettings> databases = new HashMap<DatabaseImpl<?>, PurgeSettings>();
     private ScheduledFuture<?> fut;
     private boolean running;
 
-    public void addDb(Database<?> db, PurgeSettings purgeSettings) {
+    public void addDb(DatabaseImpl<?> db, PurgeSettings purgeSettings) {
         synchronized(databases) {
             if (!databases.containsKey(db)) {
                 databases.put(db, purgeSettings);
@@ -35,7 +32,7 @@ public class BufferPurger {
         }
     }
 
-    public void removeDb(Db db) {
+    public void removeDb(DatabaseImpl<?> db) {
         synchronized (databases) {
             databases.remove(db);
         }
@@ -56,8 +53,8 @@ public class BufferPurger {
             @Override
             public void run() {
                 synchronized (databases) {
-                    for (Entry<Database<?>, PurgeSettings> entry : databases.entrySet()) {
-                        Database<?> db = entry.getKey();
+                    for (Entry<DatabaseImpl<?>, PurgeSettings> entry : databases.entrySet()) {
+                        DatabaseImpl<?> db = entry.getKey();
                         PurgeSettings settings = entry.getValue();
                         if (!(settings.isPurgeEnabled() && running)) {
                             continue;
@@ -73,14 +70,7 @@ public class BufferPurger {
                             if (!running) {
                                 break;
                             }
-                            List<String> series = db.getSeriesIds();
-                            if (File.separatorChar != '/') {
-                                List<String> corrected = new ArrayList<String>();
-                                for (String s: series) {
-                                    corrected.add(s.replace(File.separatorChar, '/'));
-                                }
-                                series = corrected;
-                            }
+                            List<String> series = Util.getSanitizedSeriesIds(db);
                             while (maxSize - currSize <= 0) {
                                 TimeRange range = db.getTimeRange(series);
                                 if (range == null || range.isUndefined()) {

@@ -39,9 +39,9 @@ wrapper {
 
 dependencies {
     compileOnly 'com.google.code.findbugs:annotations:[3.0.1,)'
-    api 'org.iot-dsa:commons:0.20.1'
-    api 'org.iot-dsa:dslink:0.20.1'
-    api 'org.iot-dsa:historian:0.20.1'
+    api 'org.iot-dsa:commons:0.23.1'
+    api 'org.iot-dsa:dslink:0.23.1'
+    api 'org.iot-dsa:historian:0.23.1'
     compile 'com.amazonaws:aws-java-sdk-dynamodb'
     implementation 'commons-io:commons-io:2.6'
     implementation 'com.github.iot-dsa:dslink-java-etsdb:0.19.4'

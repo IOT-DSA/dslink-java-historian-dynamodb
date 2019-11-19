@@ -246,8 +246,6 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
 	@Override
 	protected void performConnect() throws Exception {
-		// TODO Auto-generated method stub
-
 	}
 
 	@Override
@@ -358,6 +356,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 				refreshTableDetails(node);
 			}		
 		}, 0, 6, TimeUnit.HOURS);
+		
+		initBuffer();
+        unsentInBuffer = !processBuffer();
 	}
 
 	protected void refreshTableDetails(final Node node) {
@@ -524,6 +525,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 	}
 	
 	private String prependToPath(String path) {
+	    if (path.isEmpty() || path.charAt(0) != '/') {
+	        path = "/" + path;
+	    }
 	    return (prefixEnabledNode.getValue().getBool() ? prefixNode.getValue().getString() : "") + path;
 	}
 	
@@ -537,6 +541,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 	    if (buffer == null) {
 	        initBuffer();
 	    }
+	    LOGGER.info("Storing unsent update in buffer");
 	    ByteData d = new ByteData();
         d.setValue(value);
 	    buffer.write(path, ts, d);
@@ -552,8 +557,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 	    if (buffer == null) {
             return true;
         }
+	    
+	    LOGGER.info("Processing buffer");
 
-        List<String> seriesIds = buffer.getSeriesIds();
+        List<String> seriesIds = Util.getSanitizedSeriesIds(buffer);
         boolean totalSuccess = true;
         for (String series: seriesIds) {
             totalSuccess = totalSuccess && processBuffer(series);
@@ -578,6 +585,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                     entry.setValue(valueData.getValue().toString());
                     entry.setExpiration(getExpiration(ts));
                     updates.add(entry);
+                    if (ts > lastTs.get()) {
+                        lastTs.set(ts);
+                    }
                 }
             });
 	        count = updates.size();
