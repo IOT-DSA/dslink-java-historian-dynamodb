@@ -54,10 +54,10 @@ public class DynamoDBProvider extends DatabaseProvider {
 	private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProvider.class);
 	
 	private Map<Regions, DynamoDBRegion> regionMap = new HashMap<Regions, DynamoDBRegion>();
-//	private final DynamoDBPurger purger = new DynamoDBPurger();
+	private final BufferPurger purger = new BufferPurger();
 
     public DynamoDBProvider() {
-//        purger.setupPurger();
+        purger.setupPurger();
     }
     
     private DynamoDBRegion getRegionObject(Regions region) {
@@ -81,12 +81,12 @@ public class DynamoDBProvider extends DatabaseProvider {
     	return getDynamoDB(Main.getInstance().getDefaultRegion());
     }
 
-//    public DynamoDBPurger getPurger() {
-//        return purger;
-//    }
+    public BufferPurger getPurger() {
+        return purger;
+    }
 
 	public void stop() {
-//		purger.stop;
+		purger.stop();
 	}
 
 	@Override

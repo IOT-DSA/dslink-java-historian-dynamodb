@@ -1,10 +1,15 @@
 package org.iot.dsa.dynamodb;
 
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.util.TimeUtils;
 import org.dsa.iot.dslink.util.json.JsonArray;
 import org.dsa.iot.dslink.util.json.JsonObject;
+import org.etsdb.impl.DatabaseImpl;
 import org.iot.dsa.dynamodb.db.DBEntry;
 
 import com.amazonaws.regions.Regions;
@@ -53,6 +58,9 @@ public class Util {
 	public static final String TTL_ENABLED = "TTL Enabled";
 	public static final String TTL_DEFAULT = "Default TTL for New Records (Days)";
 	public static final String TTL_STATUS = "TTL Status";
+	public static final String BUFFER_PATH = "Buffer Path";
+	public static final String BUFFER_PURGE_ENABLED = "Enable Buffer Auto-Purge";
+	public static final String BUFFER_MAX_SIZE = "Maximum Buffer Size in Bytes";
 	
 	public static DBEntry parseRecord(Object o) {
 		if (o instanceof JsonObject) {
@@ -148,5 +156,15 @@ public class Util {
 		return Regions.fromName(rVal.getString());
 	}
 	
-
+	public static List<String> getSanitizedSeriesIds(DatabaseImpl<?> buffer) {
+        List<String> series = buffer.getSeriesIds();
+        if (File.separatorChar != '/') {
+            List<String> corrected = new ArrayList<String>();
+            for (String s: series) {
+                corrected.add(s.replace(File.separatorChar, '/'));
+            }
+            series = corrected;
+        }
+        return series;
+    }
 }
