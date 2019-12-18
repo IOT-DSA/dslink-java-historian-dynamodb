@@ -65,8 +65,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private final String name;
     private DatabaseImpl<ByteData> buffer = null;
     private boolean unsentInBuffer = false;
+    private boolean bufferProcessing = false;
     
-    private static final int MAX_BATCH_SIZE = 20;
+    private static final int MAX_BATCH_SIZE = 100;
     
     private Node prefixEnabledNode;
     private Node prefixNode;
@@ -358,7 +359,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 		}, 0, 6, TimeUnit.HOURS);
 		
 		initBuffer();
-        unsentInBuffer = !processBuffer();
+    initProcessBuffer();
 	}
 
 	protected void refreshTableDetails(final Node node) {
@@ -549,8 +550,23 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 	
 	private void checkBuffer() {
 	    if (unsentInBuffer) {
-	        unsentInBuffer = !processBuffer();
+	        initProcessBuffer();
 	    }
+	}
+	
+	private synchronized void initProcessBuffer() {
+	    if (bufferProcessing) {
+	        return;
+	    }
+	    Objects.getDaemonThreadPool().schedule(new Runnable() {
+            
+            @Override
+            public void run() {
+                bufferProcessing = true;
+                unsentInBuffer = processBuffer();
+                bufferProcessing = false;
+            }
+        }, 0, TimeUnit.SECONDS);
 	}
 	
 	private boolean processBuffer() {
@@ -563,6 +579,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         List<String> seriesIds = Util.getSanitizedSeriesIds(buffer);
         boolean totalSuccess = true;
         for (String series: seriesIds) {
+            LOGGER.info("Processing buffer for " + series);
             totalSuccess = totalSuccess && processBuffer(series);
         }
         return totalSuccess;
