@@ -359,7 +359,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 		}, 0, 6, TimeUnit.HOURS);
 		
 		initBuffer();
-        initProcessBuffer();
+    initProcessBuffer();
 	}
 
 	protected void refreshTableDetails(final Node node) {
