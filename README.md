@@ -46,9 +46,22 @@ This action creates a node that acts as a folder for grouping watch paths, and w
 
 Since DynamoDB does not distinguish between delete and write operations, automatically purging older records can be expensive. Instead, DynamoDB provides TTL functionality, allowing us to specify, when creating a record, when Amazon should automoatically delete that record. To make use of this, whenever the DSLink creates a record, it gives it an `expiration` attribute - the date and time the record should be deleted if TTL is enabled. How many days in the future to set the expiration is specified under the database node, in the value `Default TTL for New Records (Days)`. The default value is 4 years. Also under the database node is the boolean value `TTL Enabled`. When this is set to `true`, Amazon will automatically delete records whose expiration dates are in the past.
 
+### Prefixes
+
+Since it is theoretically possible for 2 instances of this DSLink to use the same backing DynamoDB table, there is a possibility of collisions between watched paths coming from different instances. To resolve this, an instance-identifying prefix can optionally be prepended to the watchPaths before sending/retrieving records to/from DynamoDB. The database node has the boolean value `Prefix Enabled`, which determines whether or not the prefix is used, and a String value `Prefix` which defines the actual prefix. By default, the prefix consists of the host ip and a hash of the DG Product ID, separated by a dash and followed by a colon.
+
 ### GetHistory Aliases
 
 When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets the GetHistory alias (`@@GetHistory`) on the point being trended to the path of the GetHistory action of that watch path in the DSLink. A node can only have one GetHistory alias, so if multiple DSLinks trend the same point, then the GetHistory alias of that point will refer to whichever DSLink added the point last. This can be changed by calling the `Restore GetHistory aliases` action on the desired DSLink. 
+
+### Watch Group Logging Type Settings
+
+There are four possible values for the `Logging Type` of a watch group:
+- `None`: nothing will be logged
+- `Interval`: logging will happen on an interval (defined by the `Interval` setting)
+- `All Data` and `Point Change`: logging will happen for every update of the path's value
+  - The only difference between `All data` and `Point Change` is that `Point Change` will ignore an update if the value is the same as the last recorded value (in this run of the program). Since dglux only sends subscription updates on value changes (and once on the start of the subscription), this means there's not really any difference, aside from maybe some edge cases.
+    - Possibly important to note: Restarting the DSLink is not one of those edge cases. Both `All Data` and `Point Change` will record the initial value when the watch is started up, and so both will end up with a duplicate value in the database. 
 
 --------------------------------------------------------------------------------------------
 ## Screenshots
