@@ -57,9 +57,9 @@ When a watch path is added in this DSLink _or_ the ETSDB DSLink, the DSLink sets
 ### Watch Group Logging Type Settings
 
 There are four possible values for the `Logging Type` of a watch group:
-- `None`: nothing will be logged
-- `Interval`: logging will happen on an interval (defined by the `Interval` setting)
-- `All Data` and `Point Change`: logging will happen for every update of the path's value
+- `None`: Nothing will be logged
+- `Interval`: Logging will happen on an interval (defined by the `Interval` setting)
+- `All Data` and `Point Change`: Logging will happen for every update of the path's value
   - The only difference between `All data` and `Point Change` is that `Point Change` will ignore an update if the value is the same as the last recorded value (in this run of the program). Since dglux only sends subscription updates on value changes (and once on the start of the subscription), this means there's not really any difference, aside from maybe some edge cases.
     - Possibly important to note: Restarting the DSLink is not one of those edge cases. Both `All Data` and `Point Change` will record the initial value when the watch is started up, and so both will end up with a duplicate value in the database. 
 
