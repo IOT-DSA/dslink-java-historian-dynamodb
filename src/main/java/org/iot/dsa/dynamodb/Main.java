@@ -12,6 +12,7 @@ import org.dsa.iot.dslink.util.handler.Handler;
 import org.dsa.iot.historian.Historian;
 import org.dsa.iot.historian.database.DatabaseProvider;
 import org.iot.dsa.dynamodb.db.DynamoDBProvider;
+import org.iot.dsa.dynamodb.db.RegionEndpoint;
 
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
@@ -104,6 +105,10 @@ public class Main extends Historian implements AWSCredentialsProvider {
 				if (regionV != null) {
 					credNode.setRoConfig(Util.REGION, regionV);
 				}
+				Value endpointV = event.getParameter(Util.ENDPOINT);
+				if (endpointV != null) {
+				    credNode.setRoConfig(Util.ENDPOINT, endpointV);
+				}
 				initialize(node);
 				
 			}
@@ -115,6 +120,12 @@ public class Main extends Historian implements AWSCredentialsProvider {
 			act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(regionEnum), regionV));
 		} else {
 			act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(regionEnum), new Value(Regions.US_WEST_1.getName())));
+		}
+		Value endpointV = credNode == null ? null : credNode.getRoConfig(Util.ENDPOINT);
+		if (endpointV != null) {
+		    act.addParameter(new Parameter(Util.ENDPOINT, ValueType.STRING, endpointV).setDescription("Optional"));
+		} else {
+		    act.addParameter(new Parameter(Util.ENDPOINT, ValueType.STRING).setDescription("Optional"));
 		}
 		Node anode = node.getChild(Util.ACT_SET_REGION, true);
 		if (anode == null) {
@@ -149,17 +160,23 @@ public class Main extends Historian implements AWSCredentialsProvider {
 		return DefaultAWSCredentialsProviderChain.getInstance().getCredentials();
 	}
 	
-	public Regions getDefaultRegion() {
+	public RegionEndpoint getDefaultRegion() {
 		Node credNode = rootNode.getChild(Util.CREDENTIALS, true);
 		Value regionV = credNode == null ? null : credNode.getRoConfig(Util.REGION);
+		Regions region = Regions.US_WEST_1;
 		if (regionV != null) {
 			try {
-				return Regions.fromName(regionV.getString());
+				region =  Regions.fromName(regionV.getString());
 			} catch (IllegalArgumentException e) {
-				return Regions.US_WEST_1;
+				region = Regions.US_WEST_1;
 			}
 		}
-		return Regions.US_WEST_1;
+		Value endpointV = credNode == null ? null : credNode.getRoConfig(Util.ENDPOINT);
+		if (endpointV != null) {
+		    return new RegionEndpoint(region, endpointV.getString());
+		} else {
+		    return new RegionEndpoint(region, null);
+		}
 	}
 
 	@Override

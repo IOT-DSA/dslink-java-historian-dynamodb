@@ -20,6 +20,7 @@ public class Util {
 	public static final String ACCESS_ID = "Access Key ID";
 	public static final String ACCESS_SECRET = "Secret Access Key";
 	public static final String REGION = "Region";
+	public static final String ENDPOINT = "Endpoint";
 	public static final String NEW_TABLE_OPTION = "Create new table";
 	public static final String OTHER_TABLE_OPTION = "Other table";
 	public static final String EXISTING_TABLE_NAME = "Table";
@@ -155,6 +156,15 @@ public class Util {
 		}
 		return Regions.fromName(rVal.getString());
 	}
+	
+	public static String getEndpointFromNode(Node node) {
+        Value eVal = node.getRoConfig(ENDPOINT);
+        if (eVal == null) {
+            return null;
+        } else {
+            return eVal.getString();
+        }
+    }
 	
 	public static List<String> getSanitizedSeriesIds(DatabaseImpl<?> buffer) {
         List<String> series = buffer.getSeriesIds();

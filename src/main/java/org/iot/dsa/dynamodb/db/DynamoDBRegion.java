@@ -2,6 +2,7 @@ package org.iot.dsa.dynamodb.db;
 
 import org.iot.dsa.dynamodb.Main;
 
+import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
@@ -14,8 +15,20 @@ public class DynamoDBRegion {
     private Regions region;
     
     public DynamoDBRegion(Regions region) {
+        this(region, null);
+    }
+    
+    public DynamoDBRegion(Regions region, String endpoint) {
     	this.region = region;
-    	client = AmazonDynamoDBClientBuilder.standard().withRegion(region).withCredentials(Main.getInstance()).build();
+    	AmazonDynamoDBClientBuilder clientbuilder = AmazonDynamoDBClientBuilder.standard().withCredentials(Main.getInstance());
+    	if (endpoint == null || endpoint.isEmpty()) {
+    	    clientbuilder.withRegion(region);
+    	} else {
+    	    AwsClientBuilder.EndpointConfiguration endpointConfig = new AwsClientBuilder.EndpointConfiguration(endpoint, region.getName());
+    	    clientbuilder.withEndpointConfiguration(endpointConfig);
+    	}
+    	client = clientbuilder.build();
+    	
     	dynamoDB = new DynamoDB(client);
     }
     

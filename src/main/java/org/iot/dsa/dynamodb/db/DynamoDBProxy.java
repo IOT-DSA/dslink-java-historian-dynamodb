@@ -99,9 +99,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         this.name = name;
     }
 	
-	void setTTLEnabled(String tableName, Regions region, boolean enabled) {
-		provider.updateTTL(tableName, region, enabled);
-		refreshTTLStatus(tableName, region);
+	void setTTLEnabled(String tableName, Regions region, String endpoint, boolean enabled) {
+		provider.updateTTL(tableName, region, endpoint, enabled);
+		refreshTTLStatus(tableName, region, endpoint);
 	}
 	
 	public long getExpiration() {
@@ -332,7 +332,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 				@Override
 				public void run() {
 					Regions region = Util.getRegionFromNode(node);
-					setTTLEnabled(node.getName(), region, ttlEnabledNode.getValue().getBool());
+					String endpoint = Util.getEndpointFromNode(node);
+					setTTLEnabled(node.getName(), region, endpoint, ttlEnabledNode.getValue().getBool());
 				}
 			}, 0, TimeUnit.MILLISECONDS);
         }
@@ -341,7 +342,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 			public void handle(ValuePair event) {
 				if (event.isFromExternalSource()) {
 					Regions region = Util.getRegionFromNode(node);
-					setTTLEnabled(node.getName(), region, event.getCurrent().getBool());
+					String endpoint = Util.getEndpointFromNode(node);
+					setTTLEnabled(node.getName(), region, endpoint, event.getCurrent().getBool());
 				}
 			}      	
         });
@@ -364,7 +366,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
 	protected void refreshTableDetails(final Node node) {
 		Regions region = Util.getRegionFromNode(node);
-		TableDescription tableInfo = provider.getTableInfo(node.getName(), region);
+		String endpoint = Util.getEndpointFromNode(node);
+		TableDescription tableInfo = provider.getTableInfo(node.getName(), region, endpoint);
 		
 		List<AttributeDefinition> attrDefs = tableInfo.getAttributeDefinitions();
 		if (attrDefs != null) {
@@ -441,7 +444,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 					long rcu = event.getParameter(Util.RCU, ValueType.NUMBER).getNumber().longValue();
 					long wcu = event.getParameter(Util.WCU, ValueType.NUMBER).getNumber().longValue();
 					Regions region = Util.getRegionFromNode(node);
-					provider.updateTable(node.getName(), region, rcu, wcu);
+					String endpoint = Util.getEndpointFromNode(node);
+					provider.updateTable(node.getName(), region, endpoint, rcu, wcu);
 					refreshTableDetails(node);
 				}
 			});
@@ -478,11 +482,11 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 			tableStatusNode.setValue(new Value(tableStatus));
 		}
 		
-		refreshTTLStatus(tableName, region);
+		refreshTTLStatus(tableName, region, endpoint);
 	}
 	
-	private void refreshTTLStatus(String tableName, Regions region) {
-		TimeToLiveDescription ttlDesc = provider.getTTLInfo(tableName, region);
+	private void refreshTTLStatus(String tableName, Regions region, String endpoint) {
+		TimeToLiveDescription ttlDesc = provider.getTTLInfo(tableName, region, endpoint);
 		if (ttlDesc != null) {
 			String ttlStatus = ttlDesc.getTimeToLiveStatus();
 			if (ttlStatus != null) {
