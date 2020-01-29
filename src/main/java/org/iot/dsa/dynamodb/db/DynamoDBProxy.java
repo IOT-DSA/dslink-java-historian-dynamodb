@@ -59,6 +59,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProxy.class);
 
     private Node attrDefsNode;
+    private Node batchInterval;
+    private Node batchSize;
     private DatabaseImpl<ByteData> buffer = null;
     private Node bufferMaxSizeNode;
     private Node bufferPathNode;
@@ -69,14 +71,11 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private Node keySchemaNode;
     private Node lsisNode;
     private final DynamoDBMapper mapper;
-    private Node maxBatchSize;
-    private Node minBatchInterval;
     private final String name;
     private Node prefixEnabledNode;
     private Node prefixNode;
     private Node provThroughputNode;
     private final DynamoDBProvider provider;
-    boolean started = false; //todo
     private Node streamArnNode;
     private Node streamLabelNode;
     private Node streamSpecNode;
@@ -101,8 +100,11 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         this.name = name;
     }
 
-    public boolean batchWrite(Iterable<DBEntry> entries) {
+    public boolean batchWrite(List<DBEntry> entries) {
         try {
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("batchWrite records: " + entries.size());
+            }
             mapper.batchSave(entries);
             return true;
         } catch (SdkClientException e) {
@@ -213,20 +215,20 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                                     .build();
         }
         bufferMaxSizeNode.setWritable(Writable.WRITE);
-        maxBatchSize = node.getChild(Util.MAX_BATCH_SIZE, true);
-        if (maxBatchSize == null) {
-            maxBatchSize = node.createChild(Util.MAX_BATCH_SIZE, true)
-                               .setValueType(ValueType.NUMBER).setValue(new Value(100))
-                               .build();
+        batchSize = node.getChild(Util.BATCH_WRITE_MAX_RECS, true);
+        if (batchSize == null) {
+            batchSize = node.createChild(Util.BATCH_WRITE_MAX_RECS, true)
+                            .setValueType(ValueType.NUMBER).setValue(new Value(100))
+                            .build();
         }
-        maxBatchSize.setWritable(Writable.WRITE);
-        minBatchInterval = node.getChild(Util.MIN_BATCH_INTERVAL, true);
-        if (minBatchInterval == null) {
-            minBatchInterval = node.createChild(Util.MIN_BATCH_INTERVAL, true)
-                                   .setValueType(ValueType.NUMBER).setValue(new Value(1500))
-                                   .build();
+        batchSize.setWritable(Writable.WRITE);
+        batchInterval = node.getChild(Util.BATCH_WRITE_MIN_IVL, true);
+        if (batchInterval == null) {
+            batchInterval = node.createChild(Util.BATCH_WRITE_MIN_IVL, true)
+                                .setValueType(ValueType.NUMBER).setValue(new Value(1000))
+                                .build();
         }
-        minBatchInterval.setWritable(Writable.WRITE);
+        batchInterval.setWritable(Writable.WRITE);
         prefixEnabledNode = node.getChild(Util.PREFIX_ENABLED, true);
         if (prefixEnabledNode == null) {
             prefixEnabledNode = node.createChild(Util.PREFIX_ENABLED, true)
@@ -606,10 +608,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             writeFromQueue();
             return;
         }
-        int maxSize = maxBatchSize.getValue().getNumber().intValue();
+        int maxSize = batchSize.getValue().getNumber().intValue();
         Map<String, Long> toDelete = new HashMap<>();
         final AtomicLong lastTs = new AtomicLong();
-        final LinkedList<DBEntry> updates = new LinkedList<>();
+        final List<DBEntry> updates = new LinkedList<>();
         for (String path : series) {
             lastTs.set(0);
             buffer.query(path, 0, Long.MAX_VALUE, maxSize - updates.size(),
@@ -638,8 +640,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             return;
         }
         unsentInBuffer = true;
-        boolean success = batchWrite(updates);
-        if (success) {
+        if (batchWrite(updates)) {
             for (Map.Entry<String, Long> e : toDelete.entrySet()) {
                 long toTs = e.getValue();
                 if (toTs == 0) {
@@ -655,15 +656,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     }
 
     private void writeFromQueue() {
-        int maxSize = maxBatchSize.getValue().getNumber().intValue();
+        int maxSize = batchSize.getValue().getNumber().intValue();
         List<Record> tmp = new ArrayList<>(maxSize);
         synchronized (writeQueue) {
-            if (!started) { //todo
-                if (writeQueue.size() < 1000) {
-                    return;
-                }
-                started = true;
-            }
             int size = Math.min(maxSize, writeQueue.size());
             if (size == 0) {
                 return;
@@ -677,19 +672,13 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         for (Record r : tmp) {
             entries.add(r.toEntry());
         }
-        try {
-            LOGGER.info("batchWrite: " + entries.size());//todo
-            mapper.batchSave(entries);
+        if (batchWrite(entries)) {
             synchronized (writeQueue) {
                 for (int i = 0; i < size; i++) {
                     writeQueue.remove(0);
                 }
-                if (writeQueue.isEmpty()) { //todo
-                    started = false;
-                }
             }
-        } catch (SdkClientException e) {
-            LOGGER.debug("", e);
+        } else {
             writeRunner.setDelay(10000);
             unsentInBuffer = true;
         }
@@ -743,7 +732,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         long last = System.currentTimeMillis();
 
         public void run() {
-            delay = minBatchInterval.getValue().getNumber().intValue();
+            delay = batchInterval.getValue().getNumber().intValue();
             long next = last + delay;
             long time = System.currentTimeMillis();
             if (next > time) {

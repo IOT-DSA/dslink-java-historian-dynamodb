@@ -59,8 +59,8 @@ public class Util {
     public static final String BUFFER_PATH = "Buffer Path";
     public static final String BUFFER_PURGE_ENABLED = "Enable Buffer Auto-Purge";
     public static final String BUFFER_MAX_SIZE = "Maximum Buffer Size in Bytes";
-    public static final String MAX_BATCH_SIZE = "Max Records in Batch Write";
-    public static final String MIN_BATCH_INTERVAL = "Min Interval Millis for Batch Writes";
+    public static final String BATCH_WRITE_MAX_RECS = "Batch Write Max Records";
+    public static final String BATCH_WRITE_MIN_IVL = "Batch Write Min Interval Millis";
 
     public static Regions getRegionFromNode(Node node) {
         Value rVal = node.getRoConfig(REGION);

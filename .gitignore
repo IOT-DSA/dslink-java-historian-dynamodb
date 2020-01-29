@@ -1,11 +1,28 @@
-# Misc
-.DS_Store
+# Tooling
+**.classpath
+**.idea
+**.iml
+**.metadata
+**.project
+**.settings
+**/eclipseBin
 
-# Gradle
+# Build artifacts
 .gradle
-build
+**.class
+**/build
+**/classes
+**/libJar
+**/out
+**/target
 
-# Project files
-*.iml
-.idea
-/bin/
+# Misc
+**.bak
+**.log
+**.old
+**.DS_Store
+
+# Runtime files
+**.key
+**nodes.json
+**/buffers

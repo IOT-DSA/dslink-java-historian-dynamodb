@@ -5,7 +5,7 @@ apply plugin: 'java-library'
 mainClassName = 'org.iot.dsa.dynamodb.Main'
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
-version = '0.1.1'
+version = '0.2.0-SNAPSHOT'
 
 buildscript {
     repositories {
@@ -26,11 +26,8 @@ dependencyManagement {
 
 repositories {
     mavenLocal()
-    mavenCentral()
-    maven {
-        url 'https://oss.sonatype.org/content/repositories/snapshots/'
-        url 'https://jitpack.io'
-    }
+    jcenter()
+    maven { url 'https://jitpack.io' }
 }
 
 wrapper {
