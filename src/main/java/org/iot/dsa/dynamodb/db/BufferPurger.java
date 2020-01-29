@@ -8,7 +8,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.commons.io.FileUtils;
 import org.dsa.iot.dslink.util.Objects;
 import org.dsa.iot.etsdb.db.DbPurger;
@@ -19,13 +18,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BufferPurger {
+
     private static final Logger LOGGER = LoggerFactory.getLogger(DbPurger.class);
     private Map<DatabaseImpl<?>, PurgeSettings> databases = new HashMap<DatabaseImpl<?>, PurgeSettings>();
     private ScheduledFuture<?> fut;
     private boolean running;
 
     public void addDb(DatabaseImpl<?> db, PurgeSettings purgeSettings) {
-        synchronized(databases) {
+        synchronized (databases) {
             if (!databases.containsKey(db)) {
                 databases.put(db, purgeSettings);
             }
@@ -35,15 +35,6 @@ public class BufferPurger {
     public void removeDb(DatabaseImpl<?> db) {
         synchronized (databases) {
             databases.remove(db);
-        }
-    }
-
-    public void stop() {
-        running = false;
-        synchronized (this) {
-            if (fut != null) {
-                fut.cancel(true);
-            }
         }
     }
 
@@ -60,7 +51,6 @@ public class BufferPurger {
                             continue;
                         }
 
-    
                         File path = db.getBaseDir();
                         long currSize = FileUtils.sizeOf(path);
                         long maxSize = settings.getMaxSizeInBytes();
@@ -98,6 +88,15 @@ public class BufferPurger {
         synchronized (this) {
             TimeUnit u = TimeUnit.SECONDS;
             fut = stpe.scheduleWithFixedDelay(runner, 30, 30, u);
+        }
+    }
+
+    public void stop() {
+        running = false;
+        synchronized (this) {
+            if (fut != null) {
+                fut.cancel(true);
+            }
         }
     }
 }
