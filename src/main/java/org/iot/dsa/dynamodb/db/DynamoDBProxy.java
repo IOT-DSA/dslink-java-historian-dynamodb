@@ -528,6 +528,37 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         refreshTTLStatus(tableName, region);
     }
 
+    private void checkIfQueueTooLarge() {
+        //prevent out of memory, write queue to disk if getting too large.
+        boolean needBufferWrite = false;
+        //calculate number max number of records that can be written in 15 minutes
+        long batchIvl = getBatchMinIvl();
+        long maxQueue;
+        if (batchIvl > 900000) { //ivl > 15 mins
+            maxQueue = getBatchMaxSize();
+        } else {
+            maxQueue = (900000 / batchIvl) * getBatchMaxSize();
+        }
+        synchronized (writeQueue) {
+            needBufferWrite = writeQueue.size() > maxQueue;
+        }
+        if (needBufferWrite) {
+            LOGGER.warn("Queue larger than can be written in 15 minutes, flushing to disk");
+            unsentInBuffer = true;
+            writeToBuffer();
+        }
+    }
+
+    private int getBatchMaxSize() {
+        int min = batchSize.getValue().getNumber().intValue();
+        return Math.max(min, 1);
+    }
+
+    private int getBatchMinIvl() {
+        int min = batchInterval.getValue().getNumber().intValue();
+        return Math.max(min, 1);
+    }
+
     private String getDefaultPrefix() {
         String host = Main.getInstance().getConfig().getAuthEndpoint().host;
         Map<String, DSLink> reqs = Main.getInstance().getProvider().getRequesters();
@@ -608,13 +639,13 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             writeFromQueue();
             return;
         }
-        int maxSize = batchSize.getValue().getNumber().intValue();
+        int maxRecs = getBatchMaxSize();
         Map<String, Long> toDelete = new HashMap<>();
         final AtomicLong lastTs = new AtomicLong();
         final List<DBEntry> updates = new LinkedList<>();
         for (String path : series) {
             lastTs.set(0);
-            buffer.query(path, 0, Long.MAX_VALUE, maxSize - updates.size(),
+            buffer.query(path, 0, Long.MAX_VALUE, maxRecs - updates.size(),
                          new QueryCallback<ByteData>() {
                              @Override
                              public void sample(String seriesId, long ts, ByteData valueData) {
@@ -649,6 +680,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                     buffer.delete(e.getKey(), 0, toTs);
                 }
             }
+            checkIfQueueTooLarge();
         } else {
             writeRunner.setDelay(10000);
             writeToBuffer();
@@ -656,7 +688,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     }
 
     private void writeFromQueue() {
-        int maxSize = batchSize.getValue().getNumber().intValue();
+        int maxSize = getBatchMaxSize();
         List<Record> tmp = new ArrayList<>(maxSize);
         synchronized (writeQueue) {
             int size = Math.min(maxSize, writeQueue.size());
@@ -678,6 +710,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                     writeQueue.remove(0);
                 }
             }
+            checkIfQueueTooLarge();
         } else {
             writeRunner.setDelay(10000);
             unsentInBuffer = true;
@@ -732,7 +765,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         long last = System.currentTimeMillis();
 
         public void run() {
-            delay = batchInterval.getValue().getNumber().intValue();
+            delay = getBatchMinIvl();
             long next = last + delay;
             long time = System.currentTimeMillis();
             if (next > time) {
