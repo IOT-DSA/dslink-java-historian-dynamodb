@@ -69,6 +69,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private Node keySchemaNode;
     private Node lsisNode;
     private final DynamoDBMapper mapper;
+    private Node myNode;
     private final String name;
     private Node provThroughputNode;
     private final DynamoDBProvider provider;
@@ -90,11 +91,12 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private final WriteRunner writeRunner = new WriteRunner();
     private boolean writing = false;
 
-    public DynamoDBProxy(String name, DynamoDBProvider provider, DynamoDBMapper mapper) {
-        super(name, provider);
+    public DynamoDBProxy(Node node, DynamoDBProvider provider, DynamoDBMapper mapper) {
+        super(node.getName(), provider);
+        this.myNode = node;
         this.mapper = mapper;
         this.provider = provider;
-        this.name = name;
+        this.name = node.getName();
     }
 
     public boolean batchWrite(List<DBEntry> entries) {
@@ -536,6 +538,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         }
 
         refreshTTLStatus(tableName, region);
+    }
+
+    Node getNode() {
+        return myNode;
     }
 
     boolean isInitialized() {

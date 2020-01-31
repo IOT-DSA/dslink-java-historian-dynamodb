@@ -55,6 +55,7 @@ import org.slf4j.LoggerFactory;
 
 public class DynamoDBProvider extends DatabaseProvider {
 
+    private static final String SCHEMA = "schema";
     private static final String TABLE_SUFFIX_PATHS = "_DSALinkPaths";
     private static final String TABLE_SUFFIX_SITES = "_DSALinkSites";
 
@@ -103,6 +104,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                     Node table = builder.build();
                     createAndInitDb(table);
                     table.getChild(Util.SITE_NAME, true).setValue(new Value(site));
+                    table.setRoConfig(SCHEMA, new Value(new Date().toString()));
                 }
             }
         });
@@ -167,14 +169,14 @@ public class DynamoDBProvider extends DatabaseProvider {
             final String site = db.getSiteName();
             if ((site != null) && !site.isEmpty()) {
                 //Only add new watches, use a config to track when created
-                Value v = node.getRoConfig("created");
-                if (v == null) {
+                Value v = node.getRoConfig(SCHEMA);
+                if ((v == null) && (db.getNode().getRoConfig(SCHEMA) != null)) {
                     Objects.getDaemonThreadPool().schedule(new Runnable() {
                         @Override
                         public void run() {
                             addPath(db.getTableName(), site, watch.getPath(),
                                     Util.getRegionFromNode(node));
-                            node.setRoConfig("created", new Value(new Date().toString()));
+                            node.setRoConfig(SCHEMA, new Value(new Date().toString()));
                         }
                     }, 2, TimeUnit.SECONDS);
                 }
@@ -267,7 +269,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                 TableNameOverride.withTableNameReplacement(tableName)).build();
         Regions region = Util.getRegionFromNode(node);
         DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
-        return new DynamoDBProxy(tableName, this, mapper);
+        return new DynamoDBProxy(node, this, mapper);
     }
 
     TimeToLiveDescription getTTLInfo(String tableName, Regions region) {
