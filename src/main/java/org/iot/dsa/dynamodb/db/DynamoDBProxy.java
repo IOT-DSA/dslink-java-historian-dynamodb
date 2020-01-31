@@ -25,14 +25,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import org.dsa.iot.dslink.DSLink;
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.Permission;
 import org.dsa.iot.dslink.node.Writable;
 import org.dsa.iot.dslink.node.actions.Action;
 import org.dsa.iot.dslink.node.actions.ActionResult;
 import org.dsa.iot.dslink.node.actions.Parameter;
-import org.dsa.iot.dslink.node.value.SubscriptionValue;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValuePair;
 import org.dsa.iot.dslink.node.value.ValueType;
@@ -49,7 +47,6 @@ import org.dsa.iot.historian.utils.QueryData;
 import org.etsdb.DatabaseFactory;
 import org.etsdb.QueryCallback;
 import org.etsdb.impl.DatabaseImpl;
-import org.iot.dsa.dynamodb.Main;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,15 +64,15 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private Node bufferPurgeEnabledNode;
     private Node creationNode;
     private Node gsisNode;
+    private boolean initialized = false;
     private Node itemCountNode;
     private Node keySchemaNode;
     private Node lsisNode;
     private final DynamoDBMapper mapper;
     private final String name;
-    private Node prefixEnabledNode;
-    private Node prefixNode;
     private Node provThroughputNode;
     private final DynamoDBProvider provider;
+    private Node siteNameNode;
     private Node streamArnNode;
     private Node streamLabelNode;
     private Node streamSpecNode;
@@ -177,6 +174,17 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         return bufferMaxSizeNode.getValue().getNumber().longValue();
     }
 
+    public String getSiteName() {
+        if (siteNameNode == null) {
+            return "";
+        }
+        return siteNameNode.getValue().getString();
+    }
+
+    public String getTableName() {
+        return tableNameNode.getValue().getString();
+    }
+
     @Override
     public void initExtensions(final Node node) {
         bufferPathNode = node.getChild(Util.BUFFER_PATH, true);
@@ -229,19 +237,25 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                                 .build();
         }
         batchInterval.setWritable(Writable.WRITE);
-        prefixEnabledNode = node.getChild(Util.PREFIX_ENABLED, true);
-        if (prefixEnabledNode == null) {
-            prefixEnabledNode = node.createChild(Util.PREFIX_ENABLED, true)
-                                    .setValueType(ValueType.BOOL).setValue(new Value(false))
-                                    .build();
+        //convert old version
+        String siteName = "";
+        Node prefixEnabled = node.getChild(Util.PREFIX_ENABLED, true);
+        if (prefixEnabled != null) {
+            Node prefix = node.getChild(Util.PREFIX, true);
+            if (prefixEnabled.getValue().getBool() && (prefix != null)) {
+                siteName = prefix.getValue().toString();
+            }
+            if (prefix != null) {
+                prefix.delete(true);
+            }
+            prefixEnabled.delete(true);
         }
-        prefixEnabledNode.setWritable(Writable.WRITE);
-        prefixNode = node.getChild(Util.PREFIX_VALUE, true);
-        if (prefixNode == null) {
-            prefixNode = node.createChild(Util.PREFIX_VALUE, true).setValueType(ValueType.STRING)
-                             .setValue(new Value(getDefaultPrefix())).build();
+        //not writable because of all the trend rows already in the database
+        siteNameNode = node.getChild(Util.SITE_NAME, true);
+        if (siteNameNode == null) {
+            siteNameNode = node.createChild(Util.SITE_NAME, true).setValueType(ValueType.STRING)
+                               .setValue(new Value(siteName)).build();
         }
-        prefixNode.setWritable(Writable.WRITE);
         attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY)
                            .build();
         attrDefsNode.setSerializable(false);
@@ -324,6 +338,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             }
         }, 0, 6, TimeUnit.HOURS);
         unsentInBuffer = true;
+        initialized = true;
         write();
     }
 
@@ -523,6 +538,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         refreshTTLStatus(tableName, region);
     }
 
+    boolean isInitialized() {
+        return initialized;
+    }
+
     void setTTLEnabled(String tableName, Regions region, boolean enabled) {
         provider.updateTTL(tableName, region, enabled);
         refreshTTLStatus(tableName, region);
@@ -559,42 +578,6 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         return Math.max(min, 1);
     }
 
-    private String getDefaultPrefix() {
-        String host = Main.getInstance().getConfig().getAuthEndpoint().host;
-        Map<String, DSLink> reqs = Main.getInstance().getProvider().getRequesters();
-        final StringBuilder sb = new StringBuilder();
-        sb.append(host).append('-');
-        for (DSLink reqlink : reqs.values()) {
-            reqlink.getRequester()
-                   .subscribe("/sys/dglicense/productId", new Handler<SubscriptionValue>() {
-                       @Override
-                       public void handle(SubscriptionValue event) {
-                           synchronized (sb) {
-                               String prodId = event.getValue().getString();
-                               String h = Integer.toHexString(prodId.hashCode());
-                               int len = h.length();
-                               String trunchash = len >= 8 ? h.substring(0, 8)
-                                       : ("00000000" + h).substring(len, 8 + len);
-                               sb.append(trunchash);
-                               sb.append(':');
-                               sb.notify();
-                           }
-                       }
-                   });
-            break;
-        }
-        synchronized (sb) {
-            if (sb.charAt(sb.length() - 1) != ':') {
-                try {
-                    sb.wait(5000);
-                } catch (InterruptedException e) {
-                    LOGGER.warn("", e);
-                }
-            }
-        }
-        return sb.toString();
-    }
-
     private void initBuffer() {
         String bufPath = bufferPathNode.getValue().getString();
         buffer = DatabaseFactory.createDatabase(new File(bufPath), new ValueSerializer());
@@ -605,8 +588,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         if (path.isEmpty() || path.charAt(0) != '/') {
             path = "/" + path;
         }
-        return (prefixEnabledNode.getValue().getBool() ? prefixNode.getValue().getString() : "")
-                + path;
+        return siteNameNode.getValue().getString() + path;
     }
 
     private void refreshTTLStatus(String tableName, Regions region) {

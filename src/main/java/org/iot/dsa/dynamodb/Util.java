@@ -31,6 +31,8 @@ public class Util {
     public static final String ACT_SET_REGION = "Set Default Region";
     public static final String EDIT_TABLE = "Edit";
 
+    public static final String SITE_KEY = "site";
+    public static final String HISTORY_KEY = "history";
     public static final String WATCH_PATH_KEY = "watchPath";
     public static final String TS_KEY = "ts";
     public static final String VALUE = "value";
@@ -38,7 +40,8 @@ public class Util {
     public static final String TS = "timestamp";
 
     public static final String PREFIX_ENABLED = "Prefix Enabled";
-    public static final String PREFIX_VALUE = "Prefix";
+    public static final String PREFIX = "Prefix";
+    public static final String SITE_NAME = "Site Name";
     public static final String ATTR_DEFINITIONS = "Attribute Definitions";
     public static final String CREATION_DATETIME = "Creation Date";
     public static final String GLOBAL_SECONDARY_INDICES = "Global Secondary Indices";

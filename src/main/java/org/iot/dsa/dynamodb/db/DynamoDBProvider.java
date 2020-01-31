@@ -6,8 +6,10 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig.TableNameOverride;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
+import com.amazonaws.services.dynamodbv2.document.Item;
 import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.document.TableCollection;
+import com.amazonaws.services.dynamodbv2.document.spec.GetItemSpec;
 import com.amazonaws.services.dynamodbv2.model.AmazonDynamoDBException;
 import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
@@ -17,16 +19,19 @@ import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
+import com.amazonaws.services.dynamodbv2.model.ResourceInUseException;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveSpecification;
 import com.amazonaws.services.dynamodbv2.model.UpdateTimeToLiveRequest;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.NodeBuilder;
 import org.dsa.iot.dslink.node.Permission;
@@ -36,6 +41,7 @@ import org.dsa.iot.dslink.node.actions.EditorType;
 import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValueType;
+import org.dsa.iot.dslink.util.Objects;
 import org.dsa.iot.dslink.util.TimeUtils;
 import org.dsa.iot.dslink.util.handler.Handler;
 import org.dsa.iot.dslink.util.json.JsonArray;
@@ -48,6 +54,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DynamoDBProvider extends DatabaseProvider {
+
+    private static final String TABLE_SUFFIX_PATHS = "_DSALinkPaths";
+    private static final String TABLE_SUFFIX_SITES = "_DSALinkSites";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProvider.class);
     private final BufferPurger purger = new BufferPurger();
@@ -62,30 +71,38 @@ public class DynamoDBProvider extends DatabaseProvider {
         Action act = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
-                String tableName = event.getParameter(Util.EXISTING_TABLE_NAME).getString();
+                String historyName = event.getParameter(Util.EXISTING_TABLE_NAME).getString();
                 Regions region = Regions.fromName(event.getParameter(Util.REGION).getString());
-                if (Util.NEW_TABLE_OPTION.equals(tableName)) {
-                    tableName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
-                                     .getString();
+                String site = event.getParameter(Util.SITE_NAME, ValueType.STRING).getString();
+                if (Util.NEW_TABLE_OPTION.equals(historyName)) {
+                    historyName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
+                                       .getString();
                     long rcu = event.getParameter(Util.NEW_TABLE_RCU, ValueType.NUMBER).getNumber()
                                     .longValue();
                     long wcu = event.getParameter(Util.NEW_TABLE_WCU, ValueType.NUMBER).getNumber()
                                     .longValue();
                     try {
-                        createTable(tableName, region, rcu, wcu);
+                        if ((site != null) && !site.isEmpty()) {
+                            createSitesTable(historyName, region, rcu, wcu);
+                            addSite(historyName, site, region);
+                            createPathsTable(historyName, region, rcu, wcu);
+                        }
+                        createHistoryTable(historyName, region, rcu, wcu);
                     } catch (Exception e) {
-                        LOGGER.error("CreateTable request failed for " + tableName);
+                        LOGGER.error("CreateTable request failed for " + historyName);
                         LOGGER.error(e.getMessage());
-                        tableName = null;
+                        historyName = null;
                     }
-                } else if (Util.OTHER_TABLE_OPTION.equals(tableName)) {
-                    tableName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
-                                     .getString();
+                } else if (Util.OTHER_TABLE_OPTION.equals(historyName)) {
+                    historyName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
+                                       .getString();
                 }
-                if (tableName != null) {
-                    NodeBuilder builder = createDbNode(tableName, event);
+                if (historyName != null) {
+                    NodeBuilder builder = createDbNode(historyName, event);
                     builder.setRoConfig(Util.REGION, new Value(region.getName()));
-                    createAndInitDb(builder.build());
+                    Node table = builder.build();
+                    createAndInitDb(table);
+                    table.getChild(Util.SITE_NAME, true).setValue(new Value(site));
                 }
             }
         });
@@ -96,13 +113,20 @@ public class DynamoDBProvider extends DatabaseProvider {
         try {
             TableCollection<ListTablesResult> tables = getDynamoDB().listTables();
             Iterator<Table> iterator = tables.iterator();
+            String name;
             while (iterator.hasNext()) {
                 Table table = iterator.next();
-                dropdown.add(table.getTableName());
+                name = table.getTableName();
+                if (!name.endsWith(TABLE_SUFFIX_PATHS) && !name.endsWith(TABLE_SUFFIX_SITES)) {
+                    dropdown.add(name);
+                }
             }
         } catch (Exception e) {
             LOGGER.warn("", e);
         }
+        act.addParameter(new Parameter(Util.SITE_NAME, ValueType.STRING)
+                                 .setDescription("New sites must have unique names")
+                                 .setPlaceHolder("Cannot ever be changed"));
         act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown),
                                        new Value(Util.NEW_TABLE_OPTION)));
         act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(Util.getRegionList()),
@@ -136,6 +160,27 @@ public class DynamoDBProvider extends DatabaseProvider {
         final Node node = watch.getNode();
         final Database database = watch.getGroup().getDb();
         final Permission perm = database.getProvider().dbPermission();
+
+        //Add watch path the the path table
+        final DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+        if (db.isInitialized()) {
+            final String site = db.getSiteName();
+            if ((site != null) && !site.isEmpty()) {
+                //Only add new watches, use a config to track when created
+                Value v = node.getRoConfig("created");
+                if (v == null) {
+                    Objects.getDaemonThreadPool().schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            addPath(db.getTableName(), site, watch.getPath(),
+                                    Util.getRegionFromNode(node));
+                            node.setRoConfig("created", new Value(new Date().toString()));
+                        }
+                    }, 2, TimeUnit.SECONDS);
+                }
+            }
+        }
+
         NodeBuilder b = node.createChild("unsubPurge", true)
                             .setDisplayName("Unsubscribe and Purge");
         Action a = new Action(perm, new Handler<ActionResult>() {
@@ -190,7 +235,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                 }
             }
         });
-        DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
+        //DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
         a.addParameter(new Parameter(Util.TS, ValueType.STRING));
         a.addParameter(new Parameter(Util.VALUE, ValueType.STRING));
         a.addParameter(new Parameter(Util.TTL, ValueType.STRING,
@@ -198,7 +243,6 @@ public class DynamoDBProvider extends DatabaseProvider {
         b.setAction(a);
         b.build();
 
-        b = node.createChild("bulkInsert", true).setDisplayName("Bulk Insert Records");
         a = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
@@ -219,12 +263,8 @@ public class DynamoDBProvider extends DatabaseProvider {
     @Override
     protected Database createDb(Node node) {
         String tableName = node.getName();
-        DynamoDBMapperConfig mapperConfig = DynamoDBMapperConfig.builder()
-                                                                .withTableNameOverride(
-                                                                        TableNameOverride
-                                                                                .withTableNameReplacement(
-                                                                                        tableName))
-                                                                .build();
+        DynamoDBMapperConfig mapperConfig = DynamoDBMapperConfig.builder().withTableNameOverride(
+                TableNameOverride.withTableNameReplacement(tableName)).build();
         Regions region = Util.getRegionFromNode(node);
         DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
         return new DynamoDBProxy(tableName, this, mapper);
@@ -268,7 +308,32 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
     }
 
-    private void createTable(String tableName, Regions region, long rcu, long wcu)
+    private void addPath(String historyName, String site, String path, Regions region) {
+        Item res = null;
+        DynamoDB db = getDynamoDB(region);
+        Table table = db.getTable(historyName + TABLE_SUFFIX_PATHS);
+        if (res == null) {
+            table.putItem(
+                    new Item().withPrimaryKey(Util.SITE_KEY, site, Util.WATCH_PATH_KEY, path));
+        }
+    }
+
+    private void addSite(String historyName, String site, Regions region) {
+        Item res = null;
+        DynamoDB db = getDynamoDB(region);
+        Table table = db.getTable(historyName + TABLE_SUFFIX_SITES);
+        try {
+            GetItemSpec req = new GetItemSpec().withPrimaryKey(Util.SITE_KEY, site);
+            res = table.getItem(req);
+        } catch (Exception x) {
+            LOGGER.warn("Check to see if site table has site", x);
+        }
+        if (res == null) {
+            table.putItem(new Item().withPrimaryKey(Util.SITE_KEY, site));
+        }
+    }
+
+    private void createHistoryTable(String tableName, Regions region, long rcu, long wcu)
             throws Exception {
         List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY)
@@ -292,6 +357,60 @@ public class DynamoDBProvider extends DatabaseProvider {
                                                    .withWriteCapacityUnits(wcu));
         Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
+    }
+
+    private void createPathsTable(String tableName, Regions region, long rcu, long wcu) {
+        try {
+            List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+            attributeDefinitions.add(
+                    new AttributeDefinition().withAttributeName(Util.SITE_KEY)
+                                             .withAttributeType("S"));
+            attributeDefinitions.add(
+                    new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY)
+                                             .withAttributeType("S"));
+            List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+            keySchema.add(new KeySchemaElement().withAttributeName(Util.SITE_KEY)
+                                                .withKeyType(KeyType.HASH));
+            keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY)
+                                                .withKeyType(KeyType.RANGE));
+            CreateTableRequest request = new CreateTableRequest()
+                    .withTableName(tableName + TABLE_SUFFIX_PATHS)
+                    .withKeySchema(keySchema)
+                    .withAttributeDefinitions(attributeDefinitions)
+                    .withProvisionedThroughput(new ProvisionedThroughput()
+                                                       .withReadCapacityUnits(rcu)
+                                                       .withWriteCapacityUnits(wcu));
+            Table table = getDynamoDB(region).createTable(request);
+            try {
+                table.waitForActive();
+            } catch (InterruptedException whocares) {
+            }
+        } catch (ResourceInUseException expected) {
+        }
+    }
+
+    private void createSitesTable(String historyName, Regions region, long rcu, long wcu) {
+        try {
+            List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.SITE_KEY)
+                                                              .withAttributeType("S"));
+            List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+            keySchema.add(new KeySchemaElement().withAttributeName(Util.SITE_KEY)
+                                                .withKeyType(KeyType.HASH));
+            CreateTableRequest request = new CreateTableRequest()
+                    .withTableName(historyName + TABLE_SUFFIX_SITES)
+                    .withKeySchema(keySchema)
+                    .withAttributeDefinitions(attributeDefinitions)
+                    .withProvisionedThroughput(new ProvisionedThroughput()
+                                                       .withReadCapacityUnits(rcu)
+                                                       .withWriteCapacityUnits(wcu));
+            Table table = getDynamoDB(region).createTable(request);
+            try {
+                table.waitForActive();
+            } catch (InterruptedException whocares) {
+            }
+        } catch (ResourceInUseException expected) {
+        }
     }
 
     private AmazonDynamoDB getClient(Regions region) {
