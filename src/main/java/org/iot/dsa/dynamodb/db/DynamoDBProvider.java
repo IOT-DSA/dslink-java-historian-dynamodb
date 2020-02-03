@@ -31,6 +31,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.NodeBuilder;
@@ -331,7 +332,9 @@ public class DynamoDBProvider extends DatabaseProvider {
             LOGGER.warn("Check to see if site table has site", x);
         }
         if (res == null) {
-            table.putItem(new Item().withPrimaryKey(Util.SITE_KEY, site));
+            TimeZone tz = TimeZone.getDefault();
+            table.putItem(new Item().withPrimaryKey(Util.SITE_KEY, site)
+                                    .with(Util.TIMEZONE, tz.getID()));
         }
     }
 

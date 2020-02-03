@@ -32,12 +32,12 @@ public class Util {
     public static final String EDIT_TABLE = "Edit";
 
     public static final String SITE_KEY = "site";
-    public static final String HISTORY_KEY = "history";
     public static final String WATCH_PATH_KEY = "watchPath";
     public static final String TS_KEY = "ts";
     public static final String VALUE = "value";
     public static final String TTL = "expiration";
     public static final String TS = "timestamp";
+    public static final String TIMEZONE = "timezone";
 
     public static final String PREFIX_ENABLED = "Prefix Enabled";
     public static final String PREFIX = "Prefix";
