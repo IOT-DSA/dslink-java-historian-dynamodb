@@ -97,6 +97,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         this.mapper = mapper;
         this.provider = provider;
         this.name = node.getName();
+
     }
 
     public boolean batchWrite(List<DBEntry> entries) {
@@ -239,24 +240,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                                 .build();
         }
         batchInterval.setWritable(Writable.WRITE);
-        //convert old version
-        String siteName = "";
-        Node prefixEnabled = node.getChild(Util.PREFIX_ENABLED, true);
-        if (prefixEnabled != null) {
-            Node prefix = node.getChild(Util.PREFIX, true);
-            if (prefixEnabled.getValue().getBool() && (prefix != null)) {
-                siteName = prefix.getValue().toString();
-            }
-            if (prefix != null) {
-                prefix.delete(true);
-            }
-            prefixEnabled.delete(true);
-        }
-        //not writable because of all the trend rows already in the database
         siteNameNode = node.getChild(Util.SITE_NAME, true);
         if (siteNameNode == null) {
             siteNameNode = node.createChild(Util.SITE_NAME, true).setValueType(ValueType.STRING)
-                               .setValue(new Value(siteName)).build();
+                               .setValue(new Value("")).build();
         }
         attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY)
                            .build();

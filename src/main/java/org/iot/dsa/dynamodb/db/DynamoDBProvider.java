@@ -20,6 +20,7 @@ import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.ResourceInUseException;
+import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveSpecification;
@@ -56,7 +57,8 @@ import org.slf4j.LoggerFactory;
 
 public class DynamoDBProvider extends DatabaseProvider {
 
-    private static final String SCHEMA = "schema";
+    static final String SCHEMA = "schema";
+    static final int SCHEMA_VERSION = 2;
     private static final String TABLE_SUFFIX_PATHS = "_DSALinkPaths";
     private static final String TABLE_SUFFIX_SITES = "_DSALinkSites";
 
@@ -85,9 +87,9 @@ public class DynamoDBProvider extends DatabaseProvider {
                                     .longValue();
                     try {
                         if ((site != null) && !site.isEmpty()) {
-                            createSitesTable(historyName, region, rcu, wcu);
+                            createSitesTable(historyName, region);
                             addSite(historyName, site, region);
-                            createPathsTable(historyName, region, rcu, wcu);
+                            createPathsTable(historyName, region);
                         }
                         createHistoryTable(historyName, region, rcu, wcu);
                     } catch (Exception e) {
@@ -103,9 +105,9 @@ public class DynamoDBProvider extends DatabaseProvider {
                     NodeBuilder builder = createDbNode(historyName, event);
                     builder.setRoConfig(Util.REGION, new Value(region.getName()));
                     Node table = builder.build();
+                    table.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                     createAndInitDb(table);
                     table.getChild(Util.SITE_NAME, true).setValue(new Value(site));
-                    table.setRoConfig(SCHEMA, new Value(new Date().toString()));
                 }
             }
         });
@@ -137,9 +139,11 @@ public class DynamoDBProvider extends DatabaseProvider {
         act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription(
                 "Only applicable when choosing 'Create new table' or 'Other table'"));
         act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L))
-                                 .setDescription("Only applicable when creating new table"));
+                                 .setDescription(
+                                         "Only applicable when creating new table, 0 for on demand"));
         act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L))
-                                 .setDescription("Only applicable when creating new table"));
+                                 .setDescription(
+                                         "Only applicable when creating new table, 0 for on demand"));
         return act;
     }
 
@@ -160,31 +164,36 @@ public class DynamoDBProvider extends DatabaseProvider {
 
     @Override
     public void onWatchAdded(final Watch watch) {
-        final Node node = watch.getNode();
+        final Node watchNode = watch.getNode();
         final Database database = watch.getGroup().getDb();
         final Permission perm = database.getProvider().dbPermission();
+        final DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
 
         //Add watch path the the path table
-        final DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
-        if (db.isInitialized()) {
+        Value value = watchNode.getRoConfig(SCHEMA);
+        boolean addPath = value == null;
+        if (!addPath) {
+            if (value.getType() != ValueType.NUMBER) { //first pass at new schema
+                watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+            }
+        }
+        if (addPath) {
             final String site = db.getSiteName();
             if ((site != null) && !site.isEmpty()) {
-                //Only add new watches, use a config to track when created
-                Value v = node.getRoConfig(SCHEMA);
-                if ((v == null) && (db.getNode().getRoConfig(SCHEMA) != null)) {
-                    Objects.getDaemonThreadPool().schedule(new Runnable() {
-                        @Override
-                        public void run() {
-                            addPath(db.getTableName(), site, watch.getPath(),
-                                    Util.getRegionFromNode(node));
-                            node.setRoConfig(SCHEMA, new Value(new Date().toString()));
-                        }
-                    }, 2, TimeUnit.SECONDS);
-                }
+                watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+                Objects.getDaemonThreadPool().schedule(new Runnable() {
+                    @Override
+                    public void run() {
+                        System.out.println("Adding path: " + watch.getPath());//todo
+                        addPath(db.getTableName(), site, watch.getPath(),
+                                Util.getRegionFromNode(watchNode));
+                        watchNode.setRoConfig(SCHEMA, new Value(new Date().toString()));
+                    }
+                }, 0, TimeUnit.MILLISECONDS);
             }
         }
 
-        NodeBuilder b = node.createChild("unsubPurge", true)
+        NodeBuilder b = watchNode.createChild("unsubPurge", true)
                             .setDisplayName("Unsubscribe and Purge");
         Action a = new Action(perm, new Handler<ActionResult>() {
             @Override
@@ -199,7 +208,7 @@ public class DynamoDBProvider extends DatabaseProvider {
         b.setAction(a);
         b.build();
 
-        b = node.createChild("purge", true).setDisplayName("Purge");
+        b = watchNode.createChild("purge", true).setDisplayName("Purge");
         a = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
@@ -223,7 +232,7 @@ public class DynamoDBProvider extends DatabaseProvider {
         b.setAction(a);
         b.build();
 
-        b = node.createChild("insert", true).setDisplayName("Insert Record");
+        b = watchNode.createChild("insert", true).setDisplayName("Insert Record");
         a = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
@@ -238,7 +247,6 @@ public class DynamoDBProvider extends DatabaseProvider {
                 }
             }
         });
-        //DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
         a.addParameter(new Parameter(Util.TS, ValueType.STRING));
         a.addParameter(new Parameter(Util.VALUE, ValueType.STRING));
         a.addParameter(new Parameter(Util.TTL, ValueType.STRING,
@@ -270,6 +278,39 @@ public class DynamoDBProvider extends DatabaseProvider {
                 TableNameOverride.withTableNameReplacement(tableName)).build();
         Regions region = Util.getRegionFromNode(node);
         DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
+        //upgrade old schemas
+        Value v = node.getRoConfig(SCHEMA);
+        if ((v == null) || (v.getType() != ValueType.NUMBER)) {
+            node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+            //convert old prefix to site name
+            String siteName = null;
+            Node prefixEnabled = node.getChild(Util.PREFIX_ENABLED, true);
+            if (prefixEnabled != null) {
+                Node prefix = node.getChild(Util.PREFIX, true);
+                if (prefix != null) {
+                    siteName = prefix.getValue().toString();
+                }
+                if (prefix != null) {
+                    prefix.delete(true);
+                }
+                prefixEnabled.delete(true);
+            }
+            Node siteNode = node.getChild(Util.SITE_NAME, true);
+            if (siteNode == null) {
+                node.createChild(Util.SITE_NAME, true)
+                    .setValueType(ValueType.STRING)
+                    .setValue(new Value(siteName)).build();
+            } else {
+                siteName = siteNode.getValue().getString();
+            }
+            //create / populate the sites / paths tables
+            if ((siteName != null) && !siteName.isEmpty()) {
+                String historyName = node.getName();
+                createSitesTable(historyName, region);
+                addSite(historyName, siteName, region);
+                createPathsTable(historyName, region);
+            }
+        }
         return new DynamoDBProxy(node, this, mapper);
     }
 
@@ -338,14 +379,21 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
     }
 
-    private void createHistoryTable(String tableName, Regions region, long rcu, long wcu)
+    private void createHistoryTable(String historyName, Regions region, long rcu, long wcu)
             throws Exception {
+        try {
+            Table table = getDynamoDB(region).getTable(historyName);
+            TableDescription desc = table.describe();
+            if (desc != null) {
+                return;
+            }
+        } catch (ResourceNotFoundException expected) {
+        }
         List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY)
                                                           .withAttributeType("S"));
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY)
                                                           .withAttributeType("N"));
-//            attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.VALUE).withAttributeType("S"));
 
         List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
         keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY)
@@ -354,17 +402,32 @@ public class DynamoDBProvider extends DatabaseProvider {
                                             .withKeyType(KeyType.RANGE));
 
         CreateTableRequest request = new CreateTableRequest()
-                .withTableName(tableName)
+                .withTableName(historyName)
                 .withKeySchema(keySchema)
-                .withAttributeDefinitions(attributeDefinitions)
-                .withProvisionedThroughput(new ProvisionedThroughput()
-                                                   .withReadCapacityUnits(rcu)
-                                                   .withWriteCapacityUnits(wcu));
+                .withAttributeDefinitions(attributeDefinitions);
+        if ((rcu > 0) || (wcu > 0)) {
+            ProvisionedThroughput pt = new ProvisionedThroughput();
+            if (rcu > 0) {
+                pt.withReadCapacityUnits(rcu);
+            }
+            if (wcu > 0) {
+                pt.withWriteCapacityUnits(wcu);
+            }
+            request.withProvisionedThroughput(pt);
+        }
         Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
     }
 
-    private void createPathsTable(String tableName, Regions region, long rcu, long wcu) {
+    private void createPathsTable(String historyName, Regions region) {
+        try {
+            Table table = getDynamoDB(region).getTable(historyName + TABLE_SUFFIX_PATHS);
+            TableDescription desc = table.describe();
+            if (desc != null) {
+                return;
+            }
+        } catch (ResourceNotFoundException expected) {
+        }
         try {
             List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
             attributeDefinitions.add(
@@ -379,12 +442,9 @@ public class DynamoDBProvider extends DatabaseProvider {
             keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY)
                                                 .withKeyType(KeyType.RANGE));
             CreateTableRequest request = new CreateTableRequest()
-                    .withTableName(tableName + TABLE_SUFFIX_PATHS)
+                    .withTableName(historyName + TABLE_SUFFIX_PATHS)
                     .withKeySchema(keySchema)
-                    .withAttributeDefinitions(attributeDefinitions)
-                    .withProvisionedThroughput(new ProvisionedThroughput()
-                                                       .withReadCapacityUnits(rcu)
-                                                       .withWriteCapacityUnits(wcu));
+                    .withAttributeDefinitions(attributeDefinitions);
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
@@ -394,7 +454,15 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
     }
 
-    private void createSitesTable(String historyName, Regions region, long rcu, long wcu) {
+    private void createSitesTable(String historyName, Regions region) {
+        try {
+            Table table = getDynamoDB(region).getTable(historyName + TABLE_SUFFIX_SITES);
+            TableDescription desc = table.describe();
+            if (desc != null) {
+                return;
+            }
+        } catch (ResourceNotFoundException expected) {
+        }
         try {
             List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
             attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.SITE_KEY)
@@ -405,10 +473,7 @@ public class DynamoDBProvider extends DatabaseProvider {
             CreateTableRequest request = new CreateTableRequest()
                     .withTableName(historyName + TABLE_SUFFIX_SITES)
                     .withKeySchema(keySchema)
-                    .withAttributeDefinitions(attributeDefinitions)
-                    .withProvisionedThroughput(new ProvisionedThroughput()
-                                                       .withReadCapacityUnits(rcu)
-                                                       .withWriteCapacityUnits(wcu));
+                    .withAttributeDefinitions(attributeDefinitions);
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
