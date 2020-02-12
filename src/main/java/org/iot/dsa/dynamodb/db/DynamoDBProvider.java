@@ -194,7 +194,7 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
 
         NodeBuilder b = watchNode.createChild("unsubPurge", true)
-                            .setDisplayName("Unsubscribe and Purge");
+                                 .setDisplayName("Unsubscribe and Purge");
         Action a = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
@@ -404,17 +404,9 @@ public class DynamoDBProvider extends DatabaseProvider {
         CreateTableRequest request = new CreateTableRequest()
                 .withTableName(historyName)
                 .withKeySchema(keySchema)
-                .withAttributeDefinitions(attributeDefinitions);
-        if ((rcu > 0) || (wcu > 0)) {
-            ProvisionedThroughput pt = new ProvisionedThroughput();
-            if (rcu > 0) {
-                pt.withReadCapacityUnits(rcu);
-            }
-            if (wcu > 0) {
-                pt.withWriteCapacityUnits(wcu);
-            }
-            request.withProvisionedThroughput(pt);
-        }
+                .withAttributeDefinitions(attributeDefinitions)
+                .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(rcu)
+                                                                      .withWriteCapacityUnits(wcu));
         Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
     }
@@ -444,7 +436,10 @@ public class DynamoDBProvider extends DatabaseProvider {
             CreateTableRequest request = new CreateTableRequest()
                     .withTableName(historyName + TABLE_SUFFIX_PATHS)
                     .withKeySchema(keySchema)
-                    .withAttributeDefinitions(attributeDefinitions);
+                    .withAttributeDefinitions(attributeDefinitions)
+                    .withProvisionedThroughput(new ProvisionedThroughput()
+                                                       .withReadCapacityUnits(5l)
+                                                       .withWriteCapacityUnits(1l));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
@@ -473,7 +468,10 @@ public class DynamoDBProvider extends DatabaseProvider {
             CreateTableRequest request = new CreateTableRequest()
                     .withTableName(historyName + TABLE_SUFFIX_SITES)
                     .withKeySchema(keySchema)
-                    .withAttributeDefinitions(attributeDefinitions);
+                    .withAttributeDefinitions(attributeDefinitions)
+                    .withProvisionedThroughput(new ProvisionedThroughput()
+                                                       .withReadCapacityUnits(5l)
+                                                       .withWriteCapacityUnits(1l));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
