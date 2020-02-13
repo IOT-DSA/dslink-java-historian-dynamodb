@@ -170,21 +170,20 @@ public class DynamoDBProvider extends DatabaseProvider {
         final DynamoDBProxy db = (DynamoDBProxy) watch.getGroup().getDb();
 
         //Add watch path the the path table
-        Value value = watchNode.getRoConfig(SCHEMA);
-        boolean addPath = value == null;
-        if (!addPath) {
-            if (value.getType() != ValueType.NUMBER) { //first pass at new schema
-                watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+        final String site = db.getSiteName();
+        if ((site != null) && !site.isEmpty()) {
+            Value value = watchNode.getRoConfig(SCHEMA);
+            boolean addPath = value == null;
+            if (!addPath) {
+                if (value.getType() != ValueType.NUMBER) { //first pass at new schema
+                    watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+                }
             }
-        }
-        if (addPath) {
-            final String site = db.getSiteName();
-            if ((site != null) && !site.isEmpty()) {
+            if (addPath) {
                 watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                 Objects.getDaemonThreadPool().schedule(new Runnable() {
                     @Override
                     public void run() {
-                        System.out.println("Adding path: " + watch.getPath());//todo
                         addPath(db.getTableName(), site, watch.getPath(),
                                 Util.getRegionFromNode(watchNode));
                         watchNode.setRoConfig(SCHEMA, new Value(new Date().toString()));
@@ -287,8 +286,10 @@ public class DynamoDBProvider extends DatabaseProvider {
             Node prefixEnabled = node.getChild(Util.PREFIX_ENABLED, true);
             if (prefixEnabled != null) {
                 Node prefix = node.getChild(Util.PREFIX, true);
-                if (prefix != null) {
-                    siteName = prefix.getValue().toString();
+                if (prefixEnabled.getValue().getBool()) {
+                    if (prefix != null) {
+                        siteName = prefix.getValue().toString();
+                    }
                 }
                 if (prefix != null) {
                     prefix.delete(true);
@@ -301,7 +302,10 @@ public class DynamoDBProvider extends DatabaseProvider {
                     .setValueType(ValueType.STRING)
                     .setValue(new Value(siteName)).build();
             } else {
-                siteName = siteNode.getValue().getString();
+                Value siteValue = siteNode.getValue();
+                if (siteValue != null) {
+                    siteName = siteValue.getString();
+                }
             }
             //create / populate the sites / paths tables
             if ((siteName != null) && !siteName.isEmpty()) {
@@ -439,7 +443,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                     .withAttributeDefinitions(attributeDefinitions)
                     .withProvisionedThroughput(new ProvisionedThroughput()
                                                        .withReadCapacityUnits(5l)
-                                                       .withWriteCapacityUnits(1l));
+                                                       .withWriteCapacityUnits(5l));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
@@ -471,7 +475,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                     .withAttributeDefinitions(attributeDefinitions)
                     .withProvisionedThroughput(new ProvisionedThroughput()
                                                        .withReadCapacityUnits(5l)
-                                                       .withWriteCapacityUnits(1l));
+                                                       .withWriteCapacityUnits(5l));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();

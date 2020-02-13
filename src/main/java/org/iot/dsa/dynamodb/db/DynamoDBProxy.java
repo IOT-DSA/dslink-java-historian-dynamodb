@@ -181,7 +181,15 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         if (siteNameNode == null) {
             return "";
         }
-        return siteNameNode.getValue().getString();
+        Value v = siteNameNode.getValue();
+        if (v == null) {
+            return "";
+        }
+        String s = v.getString();
+        if (s == null) {
+            return "";
+        }
+        return s;
     }
 
     public String getTableName() {
@@ -581,7 +589,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         if (path.isEmpty() || path.charAt(0) != '/') {
             path = "/" + path;
         }
-        return siteNameNode.getValue().getString() + path;
+        return getSiteName() + path;
     }
 
     private void refreshTTLStatus(String tableName, Regions region) {
