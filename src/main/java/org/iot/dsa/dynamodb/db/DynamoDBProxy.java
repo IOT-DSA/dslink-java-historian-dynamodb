@@ -248,9 +248,11 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                                 .build();
         }
         batchInterval.setWritable(Writable.WRITE);
-        siteNameNode = node.getChild(Util.SITE_NAME, true);
+        siteNameNode = node.getChild(Util.PREFIX, true);
         if (siteNameNode == null) {
-            siteNameNode = node.createChild(Util.SITE_NAME, true).setValueType(ValueType.STRING)
+            siteNameNode = node.createChild(Util.PREFIX, true)
+                               .setValueType(ValueType.STRING)
+                               .setDisplayName(Util.SITE_NAME)
                                .setValue(new Value("")).build();
         }
         attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY)
@@ -485,28 +487,6 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                    lastIncrease != null ? TimeUtils.format(lastIncrease) : null);
             jo.put("Number of Decreases Today", numDecreases);
             provThroughputNode.setValue(new Value(jo));
-
-            Action act = new Action(Permission.READ, new Handler<ActionResult>() {
-                @Override
-                public void handle(ActionResult event) {
-                    long rcu = event.getParameter(Util.RCU, ValueType.NUMBER).getNumber()
-                                    .longValue();
-                    long wcu = event.getParameter(Util.WCU, ValueType.NUMBER).getNumber()
-                                    .longValue();
-                    Regions region = Util.getRegionFromNode(node);
-                    provider.updateTable(node.getName(), region, rcu, wcu);
-                    refreshTableDetails(node);
-                }
-            });
-            act.addParameter(new Parameter(Util.RCU, ValueType.NUMBER, new Value(latestRCU)));
-            act.addParameter(new Parameter(Util.WCU, ValueType.NUMBER, new Value(latestWCU)));
-            Node anode = node.getChild(Util.EDIT_TABLE, true);
-            if (anode == null) {
-                node.createChild(Util.EDIT_TABLE, true).setAction(act).build()
-                    .setSerializable(false);
-            } else {
-                anode.setAction(act);
-            }
         }
 
         StreamSpecification streamSpec = tableInfo.getStreamSpecification();

@@ -75,23 +75,23 @@ public class DynamoDBProvider extends DatabaseProvider {
         Action act = new Action(perm, new Handler<ActionResult>() {
             @Override
             public void handle(ActionResult event) {
+                String site = event.getParameter(Util.SITE_NAME, ValueType.STRING).getString();
+                if ((site == null) || site.isEmpty()) {
+                    throw new IllegalArgumentException("Site Name is Required");
+                }
                 String historyName = event.getParameter(Util.EXISTING_TABLE_NAME).getString();
                 Regions region = Regions.fromName(event.getParameter(Util.REGION).getString());
-                String site = event.getParameter(Util.SITE_NAME, ValueType.STRING).getString();
                 if (Util.NEW_TABLE_OPTION.equals(historyName)) {
                     historyName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
                                        .getString();
-                    long rcu = event.getParameter(Util.NEW_TABLE_RCU, ValueType.NUMBER).getNumber()
-                                    .longValue();
-                    long wcu = event.getParameter(Util.NEW_TABLE_WCU, ValueType.NUMBER).getNumber()
-                                    .longValue();
+                    if ((historyName == null) || historyName.isEmpty()) {
+                        throw new IllegalArgumentException("Table Name is Required");
+                    }
                     try {
-                        if ((site != null) && !site.isEmpty()) {
-                            createSitesTable(historyName, region);
-                            addSite(historyName, site, region);
-                            createPathsTable(historyName, region);
-                        }
-                        createHistoryTable(historyName, region, rcu, wcu);
+                        createSitesTable(historyName, region);
+                        addSite(historyName, site, region);
+                        createPathsTable(historyName, region);
+                        createHistoryTable(historyName, region);
                     } catch (Exception e) {
                         LOGGER.error("CreateTable request failed for " + historyName);
                         LOGGER.error(e.getMessage());
@@ -100,6 +100,9 @@ public class DynamoDBProvider extends DatabaseProvider {
                 } else if (Util.OTHER_TABLE_OPTION.equals(historyName)) {
                     historyName = event.getParameter(Util.NEW_TABLE_NAME, ValueType.STRING)
                                        .getString();
+                    if ((historyName == null) || historyName.isEmpty()) {
+                        throw new IllegalArgumentException("Table Name is Required");
+                    }
                 }
                 if (historyName != null) {
                     NodeBuilder builder = createDbNode(historyName, event);
@@ -107,7 +110,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                     Node table = builder.build();
                     table.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                     createAndInitDb(table);
-                    table.getChild(Util.SITE_NAME, true).setValue(new Value(site));
+                    table.getChild(Util.PREFIX, true).setValue(new Value(site));
                 }
             }
         });
@@ -131,19 +134,13 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
         act.addParameter(new Parameter(Util.SITE_NAME, ValueType.STRING)
                                  .setDescription("New sites must have unique names")
-                                 .setPlaceHolder("Cannot ever be changed"));
+                                 .setPlaceHolder("Required & Uneditable"));
         act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown),
                                        new Value(Util.NEW_TABLE_OPTION)));
         act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(Util.getRegionList()),
                                        new Value(Main.getInstance().getDefaultRegion().getName())));
         act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription(
                 "Only applicable when choosing 'Create new table' or 'Other table'"));
-        act.addParameter(new Parameter(Util.NEW_TABLE_RCU, ValueType.NUMBER, new Value(5L))
-                                 .setDescription(
-                                         "Only applicable when creating new table, 0 for on demand"));
-        act.addParameter(new Parameter(Util.NEW_TABLE_WCU, ValueType.NUMBER, new Value(6L))
-                                 .setDescription(
-                                         "Only applicable when creating new table, 0 for on demand"));
         return act;
     }
 
@@ -172,14 +169,12 @@ public class DynamoDBProvider extends DatabaseProvider {
         //Add watch path the the path table
         final String site = db.getSiteName();
         if ((site != null) && !site.isEmpty()) {
-            Value value = watchNode.getRoConfig(SCHEMA);
-            boolean addPath = value == null;
-            if (!addPath) {
-                if (value.getType() != ValueType.NUMBER) { //first pass at new schema
-                    watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
-                }
-            }
-            if (addPath) {
+            int ver = getSchemaVersion(watchNode);
+            if (ver == 1) {
+                //development phase of schema 2
+                watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+            } else if (ver == 0) {
+                //single table version
                 watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                 Objects.getDaemonThreadPool().schedule(new Runnable() {
                     @Override
@@ -278,8 +273,11 @@ public class DynamoDBProvider extends DatabaseProvider {
         Regions region = Util.getRegionFromNode(node);
         DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
         //upgrade old schemas
-        Value v = node.getRoConfig(SCHEMA);
-        if ((v == null) || (v.getType() != ValueType.NUMBER)) {
+        int ver = getSchemaVersion(node);
+        if (ver == 1) {
+            //development phase of ver 2
+            node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+        } else if (ver == 0) {
             node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
             //convert old prefix to site name
             String siteName = null;
@@ -290,29 +288,21 @@ public class DynamoDBProvider extends DatabaseProvider {
                     if (prefix != null) {
                         siteName = prefix.getValue().toString();
                     }
+                } else {
+                    if (prefix != null) {
+                        prefix.setValue(new Value(""));
+                    }
                 }
                 if (prefix != null) {
-                    prefix.delete(true);
+                    prefix.setDisplayName(Util.SITE_NAME);
                 }
                 prefixEnabled.delete(true);
             }
-            Node siteNode = node.getChild(Util.SITE_NAME, true);
-            if (siteNode == null) {
-                node.createChild(Util.SITE_NAME, true)
-                    .setValueType(ValueType.STRING)
-                    .setValue(new Value(siteName)).build();
-            } else {
-                Value siteValue = siteNode.getValue();
-                if (siteValue != null) {
-                    siteName = siteValue.getString();
-                }
-            }
             //create / populate the sites / paths tables
             if ((siteName != null) && !siteName.isEmpty()) {
-                String historyName = node.getName();
-                createSitesTable(historyName, region);
-                addSite(historyName, siteName, region);
-                createPathsTable(historyName, region);
+                createSitesTable(tableName, region);
+                addSite(tableName, siteName, region);
+                createPathsTable(tableName, region);
             }
         }
         return new DynamoDBProxy(node, this, mapper);
@@ -383,7 +373,7 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
     }
 
-    private void createHistoryTable(String historyName, Regions region, long rcu, long wcu)
+    private void createHistoryTable(String historyName, Regions region)
             throws Exception {
         try {
             Table table = getDynamoDB(region).getTable(historyName);
@@ -409,8 +399,8 @@ public class DynamoDBProvider extends DatabaseProvider {
                 .withTableName(historyName)
                 .withKeySchema(keySchema)
                 .withAttributeDefinitions(attributeDefinitions)
-                .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(rcu)
-                                                                      .withWriteCapacityUnits(wcu));
+                .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(5l)
+                                                                      .withWriteCapacityUnits(5l));
         Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
     }
@@ -505,4 +495,16 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
         return regionObj;
     }
+
+    private int getSchemaVersion(Node node) {
+        Value v = node.getRoConfig(SCHEMA);
+        if (v == null) {
+            return 0;
+        }
+        if (v.getType() != ValueType.NUMBER) {
+            return 1; //originally was a date string
+        }
+        return v.getNumber().intValue();
+    }
+
 }

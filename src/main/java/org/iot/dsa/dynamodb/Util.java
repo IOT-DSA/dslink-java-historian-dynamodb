@@ -20,16 +20,11 @@ public class Util {
     public static final String REGION = "Region";
     public static final String NEW_TABLE_OPTION = "Create new table";
     public static final String OTHER_TABLE_OPTION = "Other table";
-    public static final String EXISTING_TABLE_NAME = "Table";
-    public static final String NEW_TABLE_NAME = "Name";
-    public static final String NEW_TABLE_RCU = "Read Capacity Units";
-    public static final String NEW_TABLE_WCU = "Write Capacity Units";
-    public static final String RCU = "Read Capacity Units";
-    public static final String WCU = "Write Capacity Units";
+    public static final String EXISTING_TABLE_NAME = "Existing Table Name";
+    public static final String NEW_TABLE_NAME = "Table Name";
 
     public static final String ACT_SET_CREDENTIALS = "Set Credentials";
     public static final String ACT_SET_REGION = "Set Default Region";
-    public static final String EDIT_TABLE = "Edit";
 
     public static final String SITE_KEY = "site";
     public static final String WATCH_PATH_KEY = "watchPath";
