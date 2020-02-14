@@ -26,11 +26,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.dsa.iot.dslink.node.Node;
-import org.dsa.iot.dslink.node.Permission;
 import org.dsa.iot.dslink.node.Writable;
-import org.dsa.iot.dslink.node.actions.Action;
-import org.dsa.iot.dslink.node.actions.ActionResult;
-import org.dsa.iot.dslink.node.actions.Parameter;
 import org.dsa.iot.dslink.node.value.Value;
 import org.dsa.iot.dslink.node.value.ValuePair;
 import org.dsa.iot.dslink.node.value.ValueType;
@@ -69,7 +65,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private Node keySchemaNode;
     private Node lsisNode;
     private final DynamoDBMapper mapper;
-    private Node myNode;
+    private final Node myNode;
     private final String name;
     private Node provThroughputNode;
     private final DynamoDBProvider provider;
@@ -82,7 +78,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     private Node tableNameNode;
     private Node tableSizeNode;
     private Node tableStatusNode;
-    private ScheduledThreadPoolExecutor threadPool = Objects.getDaemonThreadPool();
+    private final ScheduledThreadPoolExecutor threadPool = Objects.getDaemonThreadPool();
     private Node ttlDefaultDaysNode;
     private Node ttlEnabledNode;
     private Node ttlStatusNode;
@@ -114,21 +110,23 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     }
 
     public void batchWrite(String path, JsonArray records) {
-        List<DBEntry> entries = new ArrayList<DBEntry>();
+        List<DBEntry> entries = new ArrayList<>();
         path = prependToPath(path);
         for (Object o : records) {
             DBEntry entry = Util.parseRecord(o);
-            entry.setWatchPath(path);
-            if (entry.getExpiration() == null) {
-                entry.setExpiration(getExpiration());
+            if (entry != null) {
+                entry.setWatchPath(path);
+                if (entry.getExpiration() == null) {
+                    entry.setExpiration(getExpiration());
+                }
+                entries.add(entry);
             }
-            entries.add(entry);
         }
         batchWrite(entries);
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (tableInfoPoller != null) {
             tableInfoPoller.cancel(true);
         }
@@ -137,7 +135,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     public void delete(String path, long fromTs, long toTs) {
 
-        Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
+        Map<String, AttributeValue> eav = new HashMap<>();
         eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
         if (fromTs >= 0) {
             eav.put(":v2", new AttributeValue().withN(String.valueOf(fromTs)));
@@ -190,10 +188,6 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             return "";
         }
         return s;
-    }
-
-    public String getTableName() {
-        return tableNameNode.getValue().getString();
     }
 
     @Override
@@ -348,7 +342,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     @Override
     public void query(String path, long from, long to, CompleteHandler<QueryData> handler) {
-        Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
+        Map<String, AttributeValue> eav = new HashMap<>();
         eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
         eav.put(":v2", new AttributeValue().withN(String.valueOf(from)));
         eav.put(":v3", new AttributeValue().withN(String.valueOf(to)));
@@ -367,7 +361,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     @Override
     public QueryData queryFirst(String path) {
-        Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
+        Map<String, AttributeValue> eav = new HashMap<>();
         eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 
         DynamoDBQueryExpression<DBEntry> queryExpression = new DynamoDBQueryExpression<DBEntry>()
@@ -382,7 +376,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     @Override
     public QueryData queryLast(String path) {
-        Map<String, AttributeValue> eav = new HashMap<String, AttributeValue>();
+        Map<String, AttributeValue> eav = new HashMap<>();
         eav.put(":v1", new AttributeValue().withS(prependToPath(path)));
 
         DynamoDBQueryExpression<DBEntry> queryExpression = new DynamoDBQueryExpression<DBEntry>()
@@ -410,7 +404,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
     }
 
     @Override
-    protected void performConnect() throws Exception {
+    protected void performConnect() {
     }
 
     protected void refreshTableDetails(final Node node) {
@@ -519,10 +513,6 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         return myNode;
     }
 
-    boolean isInitialized() {
-        return initialized;
-    }
-
     void setTTLEnabled(String tableName, Regions region, boolean enabled) {
         provider.updateTTL(tableName, region, enabled);
         refreshTTLStatus(tableName, region);
@@ -530,7 +520,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     private void checkIfQueueTooLarge() {
         //prevent out of memory, write queue to disk if getting too large.
-        boolean needBufferWrite = false;
+        boolean needBufferWrite;
         //calculate number max number of records that can be written in 15 minutes
         long batchIvl = getBatchMinIvl();
         long maxQueue;
@@ -669,8 +659,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         }
         if (batchWrite(entries)) {
             synchronized (writeQueue) {
-                for (int i = 0; i < size; i++) {
-                    writeQueue.remove(0);
+                if (size > 0) {
+                    writeQueue.subList(0, size).clear();
                 }
             }
             checkIfQueueTooLarge();
@@ -686,8 +676,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             if (writeQueue.isEmpty()) {
                 return;
             }
-            entries = new ArrayList<>();
-            entries.addAll(writeQueue);
+            entries = new ArrayList<>(writeQueue);
             writeQueue.clear();
         }
         LOGGER.info("Storing unsent updates in buffer");
@@ -700,10 +689,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     private class Record {
 
-        long expiration;
-        String path;
-        long ts;
-        Value value;
+        final long expiration;
+        final String path;
+        final long ts;
+        final Value value;
 
         Record(String path, long ts, Value value, long expiration) {
             this.path = path;
@@ -727,6 +716,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         long delay;
         long last = System.currentTimeMillis();
 
+        @Override
         public void run() {
             delay = getBatchMinIvl();
             long next = last + delay;

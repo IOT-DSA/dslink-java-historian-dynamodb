@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 public class BufferPurger {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DbPurger.class);
-    private Map<DatabaseImpl<?>, PurgeSettings> databases = new HashMap<DatabaseImpl<?>, PurgeSettings>();
+    private final Map<DatabaseImpl<?>, PurgeSettings> databases = new HashMap<>();
     private ScheduledFuture<?> fut;
     private boolean running;
 
@@ -75,10 +75,6 @@ public class BufferPurger {
                                 }
                                 currSize = FileUtils.sizeOf(path);
                             }
-                        }
-                        if (delCount > 0) {
-//                            String p = path.getPath();
-//                            LOGGER.info("Deleted {} records from {}", delCount, p);
                         }
                     }
                 }

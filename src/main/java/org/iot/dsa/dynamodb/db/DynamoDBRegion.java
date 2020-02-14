@@ -8,9 +8,9 @@ import org.iot.dsa.dynamodb.Main;
 
 public class DynamoDBRegion {
 
-    private AmazonDynamoDB client;// = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
-    private DynamoDB dynamoDB;
-    private Regions region;
+    private final AmazonDynamoDB client;// = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_WEST_1).withCredentials(Main.getInstance()).build();
+    private final DynamoDB dynamoDB;
+    private final Regions region;
 
     public DynamoDBRegion(Regions region) {
         this.region = region;

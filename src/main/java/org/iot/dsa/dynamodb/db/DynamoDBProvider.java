@@ -26,7 +26,6 @@ import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveSpecification;
 import com.amazonaws.services.dynamodbv2.model.UpdateTimeToLiveRequest;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -64,7 +63,7 @@ public class DynamoDBProvider extends DatabaseProvider {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DynamoDBProvider.class);
     private final BufferPurger purger = new BufferPurger();
-    private Map<Regions, DynamoDBRegion> regionMap = new HashMap<Regions, DynamoDBRegion>();
+    private final Map<Regions, DynamoDBRegion> regionMap = new HashMap<>();
 
     public DynamoDBProvider() {
         purger.setupPurger();
@@ -114,7 +113,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                 }
             }
         });
-        List<String> dropdown = new LinkedList<String>();
+        List<String> dropdown = new LinkedList<>();
         dropdown.add(Util.NEW_TABLE_OPTION);
         dropdown.add(Util.OTHER_TABLE_OPTION);
 
@@ -134,13 +133,16 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
         act.addParameter(new Parameter(Util.SITE_NAME, ValueType.STRING)
                                  .setDescription("New sites must have unique names")
-                                 .setPlaceHolder("Required & Uneditable"));
+                                 .setPlaceHolder("Required and Uneditable"));
         act.addParameter(new Parameter(Util.EXISTING_TABLE_NAME, ValueType.makeEnum(dropdown),
                                        new Value(Util.NEW_TABLE_OPTION)));
         act.addParameter(new Parameter(Util.REGION, ValueType.makeEnum(Util.getRegionList()),
                                        new Value(Main.getInstance().getDefaultRegion().getName())));
-        act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING).setDescription(
-                "Only applicable when choosing 'Create new table' or 'Other table'"));
+        act.addParameter(new Parameter(Util.NEW_TABLE_NAME, ValueType.STRING)
+                                 .setDescription(
+                                         "Only applicable when choosing 'Create new table' or 'Other table'")
+                                 .setPlaceHolder(
+                                         "For 'Create new table' or 'Other table'"));
         return act;
     }
 
@@ -174,14 +176,13 @@ public class DynamoDBProvider extends DatabaseProvider {
                 //development phase of schema 2
                 watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
             } else if (ver == 0) {
-                //single table version
+                //orig solo table version
                 watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                 Objects.getDaemonThreadPool().schedule(new Runnable() {
                     @Override
                     public void run() {
-                        addPath(db.getTableName(), site, watch.getPath(),
+                        addPath(db.getNode().getName(), site, watch.getPath(),
                                 Util.getRegionFromNode(watchNode));
-                        watchNode.setRoConfig(SCHEMA, new Value(new Date().toString()));
                     }
                 }, 0, TimeUnit.MILLISECONDS);
             }
@@ -334,26 +335,11 @@ public class DynamoDBProvider extends DatabaseProvider {
         }
     }
 
-    void updateTable(String tableName, Regions region, long rcu, long wcu) {
-        try {
-            Table table = getDynamoDB(region).getTable(tableName);
-            table.updateTable(new ProvisionedThroughput().withReadCapacityUnits(rcu)
-                                                         .withWriteCapacityUnits(wcu));
-            table.waitForActive();
-        } catch (Exception e) {
-            LOGGER.error("UpdateTable request failed for " + tableName);
-            LOGGER.error(e.getMessage());
-        }
-    }
-
     private void addPath(String historyName, String site, String path, Regions region) {
-        Item res = null;
         DynamoDB db = getDynamoDB(region);
         Table table = db.getTable(historyName + TABLE_SUFFIX_PATHS);
-        if (res == null) {
-            table.putItem(
-                    new Item().withPrimaryKey(Util.SITE_KEY, site, Util.WATCH_PATH_KEY, path));
-        }
+        table.putItem(
+                new Item().withPrimaryKey(Util.SITE_KEY, site, Util.WATCH_PATH_KEY, path));
     }
 
     private void addSite(String historyName, String site, Regions region) {
@@ -383,13 +369,13 @@ public class DynamoDBProvider extends DatabaseProvider {
             }
         } catch (ResourceNotFoundException expected) {
         }
-        List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+        List<AttributeDefinition> attributeDefinitions = new ArrayList<>();
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY)
                                                           .withAttributeType("S"));
         attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.TS_KEY)
                                                           .withAttributeType("N"));
 
-        List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+        List<KeySchemaElement> keySchema = new ArrayList<>();
         keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY)
                                             .withKeyType(KeyType.HASH));
         keySchema.add(new KeySchemaElement().withAttributeName(Util.TS_KEY)
@@ -399,8 +385,8 @@ public class DynamoDBProvider extends DatabaseProvider {
                 .withTableName(historyName)
                 .withKeySchema(keySchema)
                 .withAttributeDefinitions(attributeDefinitions)
-                .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(5l)
-                                                                      .withWriteCapacityUnits(5l));
+                .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(5L)
+                                                                      .withWriteCapacityUnits(5L));
         Table table = getDynamoDB(region).createTable(request);
         table.waitForActive();
     }
@@ -415,14 +401,14 @@ public class DynamoDBProvider extends DatabaseProvider {
         } catch (ResourceNotFoundException expected) {
         }
         try {
-            List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+            List<AttributeDefinition> attributeDefinitions = new ArrayList<>();
             attributeDefinitions.add(
                     new AttributeDefinition().withAttributeName(Util.SITE_KEY)
                                              .withAttributeType("S"));
             attributeDefinitions.add(
                     new AttributeDefinition().withAttributeName(Util.WATCH_PATH_KEY)
                                              .withAttributeType("S"));
-            List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+            List<KeySchemaElement> keySchema = new ArrayList<>();
             keySchema.add(new KeySchemaElement().withAttributeName(Util.SITE_KEY)
                                                 .withKeyType(KeyType.HASH));
             keySchema.add(new KeySchemaElement().withAttributeName(Util.WATCH_PATH_KEY)
@@ -432,8 +418,8 @@ public class DynamoDBProvider extends DatabaseProvider {
                     .withKeySchema(keySchema)
                     .withAttributeDefinitions(attributeDefinitions)
                     .withProvisionedThroughput(new ProvisionedThroughput()
-                                                       .withReadCapacityUnits(5l)
-                                                       .withWriteCapacityUnits(5l));
+                                                       .withReadCapacityUnits(5L)
+                                                       .withWriteCapacityUnits(5L));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();
@@ -453,10 +439,10 @@ public class DynamoDBProvider extends DatabaseProvider {
         } catch (ResourceNotFoundException expected) {
         }
         try {
-            List<AttributeDefinition> attributeDefinitions = new ArrayList<AttributeDefinition>();
+            List<AttributeDefinition> attributeDefinitions = new ArrayList<>();
             attributeDefinitions.add(new AttributeDefinition().withAttributeName(Util.SITE_KEY)
                                                               .withAttributeType("S"));
-            List<KeySchemaElement> keySchema = new ArrayList<KeySchemaElement>();
+            List<KeySchemaElement> keySchema = new ArrayList<>();
             keySchema.add(new KeySchemaElement().withAttributeName(Util.SITE_KEY)
                                                 .withKeyType(KeyType.HASH));
             CreateTableRequest request = new CreateTableRequest()
@@ -464,8 +450,8 @@ public class DynamoDBProvider extends DatabaseProvider {
                     .withKeySchema(keySchema)
                     .withAttributeDefinitions(attributeDefinitions)
                     .withProvisionedThroughput(new ProvisionedThroughput()
-                                                       .withReadCapacityUnits(5l)
-                                                       .withWriteCapacityUnits(5l));
+                                                       .withReadCapacityUnits(5L)
+                                                       .withWriteCapacityUnits(5L));
             Table table = getDynamoDB(region).createTable(request);
             try {
                 table.waitForActive();

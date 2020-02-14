@@ -82,7 +82,7 @@ public class Util {
     public static List<String> getSanitizedSeriesIds(DatabaseImpl<?> buffer) {
         List<String> series = buffer.getSeriesIds();
         if (File.separatorChar != '/') {
-            List<String> corrected = new ArrayList<String>();
+            List<String> corrected = new ArrayList<>();
             for (String s : series) {
                 corrected.add(s.replace(File.separatorChar, '/'));
             }

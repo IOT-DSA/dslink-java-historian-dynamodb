@@ -2,8 +2,8 @@ package org.iot.dsa.dynamodb.db;
 
 public interface PurgeSettings {
 
-    public long getMaxSizeInBytes();
+    long getMaxSizeInBytes();
 
-    public boolean isPurgeEnabled();
+    boolean isPurgeEnabled();
 
 }
