@@ -4,7 +4,7 @@ apply plugin: 'java-library'
 mainClassName = 'org.iot.dsa.dynamodb.Main'
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
-version = '0.2.0'
+version = '0.2.0-SNAPSHOT'
 
 buildscript {
     repositories {
@@ -30,7 +30,7 @@ repositories {
 }
 
 wrapper {
-    gradleVersion = '6.1'
+    gradleVersion = '6.2.2'
 }
 
 dependencies {

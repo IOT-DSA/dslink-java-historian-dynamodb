@@ -57,7 +57,7 @@ import org.slf4j.LoggerFactory;
 public class DynamoDBProvider extends DatabaseProvider {
 
     static final String SCHEMA = "schema";
-    static final int SCHEMA_VERSION = 2;
+    static final int SCHEMA_VERSION = 3;
     private static final String TABLE_SUFFIX_PATHS = "_DSALinkPaths";
     private static final String TABLE_SUFFIX_SITES = "_DSALinkSites";
 
@@ -87,10 +87,10 @@ public class DynamoDBProvider extends DatabaseProvider {
                         throw new IllegalArgumentException("Table Name is Required");
                     }
                     try {
+                        createHistoryTable(historyName, region);
                         createSitesTable(historyName, region);
                         addSite(historyName, site, region);
                         createPathsTable(historyName, region);
-                        createHistoryTable(historyName, region);
                     } catch (Exception e) {
                         LOGGER.error("CreateTable request failed for " + historyName);
                         LOGGER.error(e.getMessage());
@@ -101,6 +101,16 @@ public class DynamoDBProvider extends DatabaseProvider {
                                        .getString();
                     if ((historyName == null) || historyName.isEmpty()) {
                         throw new IllegalArgumentException("Table Name is Required");
+                    }
+                    try {
+                        createHistoryTable(historyName, region);
+                        createSitesTable(historyName, region);
+                        addSite(historyName, site, region);
+                        createPathsTable(historyName, region);
+                    } catch (Exception e) {
+                        LOGGER.error("CreateTable request failed for " + historyName);
+                        LOGGER.error(e.getMessage());
+                        historyName = null;
                     }
                 }
                 if (historyName != null) {
@@ -172,17 +182,20 @@ public class DynamoDBProvider extends DatabaseProvider {
         final String site = db.getSiteName();
         if ((site != null) && !site.isEmpty()) {
             int ver = getSchemaVersion(watchNode);
-            if (ver == 1) {
-                //development phase of schema 2
-                watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
-            } else if (ver == 0) {
-                //orig solo table version
+            if (ver < 3) {
+                if (watchNode.getRoConfig(Util.REGION) != null) {
+                    watchNode.removeRoConfig(Util.REGION); //bug in v2
+                }
                 watchNode.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
                 Objects.getDaemonThreadPool().schedule(new Runnable() {
                     @Override
                     public void run() {
-                        addPath(db.getNode().getName(), site, watch.getPath(),
-                                Util.getRegionFromNode(watchNode));
+                        try {
+                            addPath(db.getNode().getName(), site, watch.getPath(),
+                                    Util.getRegionFromNode(db.getNode()));
+                        } catch (Exception x) {
+                            LOGGER.warn(watch.getPath(), x);
+                        }
                     }
                 }, 0, TimeUnit.MILLISECONDS);
             }
@@ -275,11 +288,13 @@ public class DynamoDBProvider extends DatabaseProvider {
         DynamoDBMapper mapper = new DynamoDBMapper(getClient(region), mapperConfig);
         //upgrade old schemas
         int ver = getSchemaVersion(node);
-        if (ver == 1) {
+        if (ver == 2) {
+            //buggy version
+            node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
+        } else if (ver == 1) {
             //development phase of ver 2
             node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
         } else if (ver == 0) {
-            node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
             //convert old prefix to site name
             String siteName = null;
             Node prefixEnabled = node.getChild(Util.PREFIX_ENABLED, true);
@@ -305,6 +320,7 @@ public class DynamoDBProvider extends DatabaseProvider {
                 addSite(tableName, siteName, region);
                 createPathsTable(tableName, region);
             }
+            node.setRoConfig(SCHEMA, new Value(SCHEMA_VERSION));
         }
         return new DynamoDBProxy(node, this, mapper);
     }
