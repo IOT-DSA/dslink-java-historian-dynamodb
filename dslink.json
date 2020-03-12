@@ -1,6 +1,6 @@
 {
   "name": "dslink-java-historian-dynamodb",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Historian DSLink implementation for DynamoDB",
   "license": "Apache",
   "author": {
