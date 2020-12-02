@@ -28,7 +28,7 @@ This action creates a node that acts as a folder for grouping watch paths, and w
 - `Add Watch Path` - Enter a DSA path to begin trending the corresponding point.
 - `Delete` - Delete this watch group and stop trending all of its watch paths.
 
-### Wath Path Actions
+### Watch Path Actions
 
 - `Get History` - Retreive a table of the values of this watch path for the specified time range.
 - `Unsubscribe` - Stop trending this watch path and remove it from the watch group
