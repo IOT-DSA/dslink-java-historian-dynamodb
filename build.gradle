@@ -4,7 +4,7 @@ apply plugin: 'java-library'
 mainClassName = 'org.iot.dsa.dynamodb.Main'
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
-version = '0.2.0'
+version = '0.2.1'
 
 buildscript {
     repositories {
@@ -30,17 +30,14 @@ repositories {
 }
 
 wrapper {
-    gradleVersion = '6.2.2'
+    gradleVersion = '6.7'
 }
 
 dependencies {
     compileOnly 'com.google.code.findbugs:annotations:[3.0.1,)'
-    api 'org.iot-dsa:commons:0.23.1'
-    api 'org.iot-dsa:dslink:0.23.1'
-    api 'org.iot-dsa:historian:0.23.1'
     compile 'com.amazonaws:aws-java-sdk-dynamodb'
     implementation 'commons-io:commons-io:2.6'
-    implementation 'com.github.iot-dsa:dslink-java-etsdb:0.19.4'
+    implementation 'com.github.iot-dsa:dslink-java-etsdb:0.19.8'
 }
 
 run {

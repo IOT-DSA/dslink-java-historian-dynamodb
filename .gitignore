@@ -21,6 +21,7 @@
 **.log
 **.old
 **.DS_Store
+*.csv
 
 # Runtime files
 **.key
