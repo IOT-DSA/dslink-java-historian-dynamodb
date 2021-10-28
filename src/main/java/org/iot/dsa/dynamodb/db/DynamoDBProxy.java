@@ -13,18 +13,6 @@ import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputDescription;
 import com.amazonaws.services.dynamodbv2.model.StreamSpecification;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.model.TimeToLiveDescription;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import org.dsa.iot.dslink.node.Node;
 import org.dsa.iot.dslink.node.Writable;
 import org.dsa.iot.dslink.node.value.Value;
@@ -46,6 +34,19 @@ import org.etsdb.impl.DatabaseImpl;
 import org.iot.dsa.dynamodb.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DynamoDBProxy extends Database implements PurgeSettings {
 
@@ -101,8 +102,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             if (LOGGER.isTraceEnabled()) {
                 LOGGER.trace("batchWrite records: " + entries.size());
             }
-            mapper.batchSave(entries);
-            return true;
+            List<DynamoDBMapper.FailedBatch> failed = mapper.batchSave(entries);
+            return (failed == null) || failed.isEmpty();
         } catch (SdkClientException e) {
             LOGGER.debug("", e);
             return false;
@@ -195,7 +196,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         bufferPathNode = node.getChild(Util.BUFFER_PATH, true);
         if (bufferPathNode == null) {
             bufferPathNode = node.createChild(Util.BUFFER_PATH, true).setValueType(ValueType.STRING)
-                                 .setValue(new Value("buffers/" + name)).build();
+                    .setValue(new Value("buffers/" + name)).build();
         }
         bufferPathNode.setWritable(Writable.WRITE);
         bufferPathNode.getListener().setValueHandler(new Handler<ValuePair>() {
@@ -217,87 +218,87 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         bufferPurgeEnabledNode = node.getChild(Util.BUFFER_PURGE_ENABLED, true);
         if (bufferPurgeEnabledNode == null) {
             bufferPurgeEnabledNode = node.createChild(Util.BUFFER_PURGE_ENABLED, true)
-                                         .setValueType(ValueType.BOOL).setValue(new Value(false))
-                                         .build();
+                    .setValueType(ValueType.BOOL).setValue(new Value(false))
+                    .build();
         }
         bufferPurgeEnabledNode.setWritable(Writable.WRITE);
         bufferMaxSizeNode = node.getChild(Util.BUFFER_MAX_SIZE, true);
         if (bufferMaxSizeNode == null) {
             bufferMaxSizeNode = node.createChild(Util.BUFFER_MAX_SIZE, true)
-                                    .setValueType(ValueType.NUMBER).setValue(new Value(1074000000))
-                                    .build();
+                    .setValueType(ValueType.NUMBER).setValue(new Value(1074000000))
+                    .build();
         }
         bufferMaxSizeNode.setWritable(Writable.WRITE);
         batchSize = node.getChild(Util.BATCH_WRITE_MAX_RECS, true);
         if (batchSize == null) {
             batchSize = node.createChild(Util.BATCH_WRITE_MAX_RECS, true)
-                            .setValueType(ValueType.NUMBER).setValue(new Value(100))
-                            .build();
+                    .setValueType(ValueType.NUMBER).setValue(new Value(100))
+                    .build();
         }
         batchSize.setWritable(Writable.WRITE);
         batchInterval = node.getChild(Util.BATCH_WRITE_MIN_IVL, true);
         if (batchInterval == null) {
             batchInterval = node.createChild(Util.BATCH_WRITE_MIN_IVL, true)
-                                .setValueType(ValueType.NUMBER).setValue(new Value(1000))
-                                .build();
+                    .setValueType(ValueType.NUMBER).setValue(new Value(1000))
+                    .build();
         }
         batchInterval.setWritable(Writable.WRITE);
         siteNameNode = node.getChild(Util.PREFIX, true);
         if (siteNameNode == null) {
             siteNameNode = node.createChild(Util.PREFIX, true)
-                               .setValueType(ValueType.STRING)
-                               .setDisplayName(Util.SITE_NAME)
-                               .setValue(new Value("")).build();
+                    .setValueType(ValueType.STRING)
+                    .setDisplayName(Util.SITE_NAME)
+                    .setValue(new Value("")).build();
         }
         attrDefsNode = node.createChild(Util.ATTR_DEFINITIONS, true).setValueType(ValueType.ARRAY)
-                           .build();
+                .build();
         attrDefsNode.setSerializable(false);
         creationNode = node.createChild(Util.CREATION_DATETIME, true).setValueType(ValueType.STRING)
-                           .build();
+                .build();
         creationNode.setSerializable(false);
         gsisNode = node.createChild(Util.GLOBAL_SECONDARY_INDICES, true)
-                       .setValueType(ValueType.ARRAY).build();
+                .setValueType(ValueType.ARRAY).build();
         gsisNode.setSerializable(false);
         itemCountNode = node.createChild(Util.ITEM_COUNT, true).setValueType(ValueType.NUMBER)
-                            .build();
+                .build();
         itemCountNode.setSerializable(false);
         keySchemaNode = node.createChild(Util.KEY_SCHEMA, true).setValueType(ValueType.ARRAY)
-                            .build();
+                .build();
         keySchemaNode.setSerializable(false);
         streamArnNode = node.createChild(Util.STREAM_ARN, true).setValueType(ValueType.STRING)
-                            .build();
+                .build();
         streamArnNode.setSerializable(false);
         streamLabelNode = node.createChild(Util.STREAM_LABEL, true).setValueType(ValueType.STRING)
-                              .build();
+                .build();
         streamLabelNode.setSerializable(false);
         lsisNode = node.createChild(Util.LOCAL_SECONDARY_INDICES, true)
-                       .setValueType(ValueType.ARRAY).build();
+                .setValueType(ValueType.ARRAY).build();
         lsisNode.setSerializable(false);
         provThroughputNode = node.createChild(Util.PROVISIONED_THROUGHPUT, true)
-                                 .setValueType(ValueType.MAP).build();
+                .setValueType(ValueType.MAP).build();
         provThroughputNode.setSerializable(false);
         streamSpecNode = node.createChild(Util.STREAM_SPEC, true).setValueType(ValueType.STRING)
-                             .build();
+                .build();
         streamSpecNode.setSerializable(false);
         tableArnNode = node.createChild(Util.TABLE_ARN, true).setValueType(ValueType.STRING)
-                           .build();
+                .build();
         tableArnNode.setSerializable(false);
         tableNameNode = node.createChild(Util.TABLE_NAME, true).setValueType(ValueType.STRING)
-                            .build();
+                .build();
         tableNameNode.setSerializable(false);
         tableSizeNode = node.createChild(Util.TABLE_SIZE_BYTES, true).setValueType(ValueType.NUMBER)
-                            .build();
+                .build();
         tableSizeNode.setSerializable(false);
         tableStatusNode = node.createChild(Util.TABLE_STATUS, true).setValueType(ValueType.STRING)
-                              .build();
+                .build();
         tableStatusNode.setSerializable(false);
         ttlStatusNode = node.createChild(Util.TTL_STATUS, true).setValueType(ValueType.STRING)
-                            .build();
+                .build();
         ttlStatusNode.setSerializable(false);
         ttlEnabledNode = node.getChild(Util.TTL_ENABLED, true);
         if (ttlEnabledNode == null) {
             ttlEnabledNode = node.createChild(Util.TTL_ENABLED, true).setValueType(ValueType.BOOL)
-                                 .setValue(new Value(false)).build();
+                    .setValue(new Value(false)).build();
         } else if (ttlEnabledNode.getValue() != null) {
             threadPool.schedule(new Runnable() {
                 @Override
@@ -320,8 +321,8 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         ttlDefaultDaysNode = node.getChild(Util.TTL_DEFAULT, true);
         if (ttlDefaultDaysNode == null) {
             ttlDefaultDaysNode = node.createChild(Util.TTL_DEFAULT, true)
-                                     .setValueType(ValueType.NUMBER).setValue(new Value(1461))
-                                     .build();
+                    .setValueType(ValueType.NUMBER).setValue(new Value(1461))
+                    .build();
         }
         ttlDefaultDaysNode.setWritable(Writable.WRITE);
         tableInfoPoller = threadPool.scheduleWithFixedDelay(new Runnable() {
@@ -476,9 +477,9 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
             jo.put("Read Capacity Units", latestRCU);
             jo.put("Write Capacity Units", latestWCU);
             jo.put("Last Decrease Date",
-                   lastDecrease != null ? TimeUtils.format(lastDecrease) : null);
+                    lastDecrease != null ? TimeUtils.format(lastDecrease) : null);
             jo.put("Last Increase Date",
-                   lastIncrease != null ? TimeUtils.format(lastIncrease) : null);
+                    lastIncrease != null ? TimeUtils.format(lastIncrease) : null);
             jo.put("Number of Decreases Today", numDecreases);
             provThroughputNode.setValue(new Value(jo));
         }
@@ -582,15 +583,14 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         threadPool.execute(writeRunner);
     }
 
-    private void writeFromBuffer() {
+    private boolean writeFromBuffer() {
         if (buffer == null) {
             initBuffer();
         }
         List<String> series = Util.getSanitizedSeriesIds(buffer);
         if (series.isEmpty()) {
             unsentInBuffer = false;
-            writeFromQueue();
-            return;
+            return writeFromQueue();
         }
         int maxRecs = getBatchMaxSize();
         Map<String, Long> toDelete = new HashMap<>();
@@ -599,20 +599,20 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
         for (String path : series) {
             lastTs.set(0);
             buffer.query(path, 0, Long.MAX_VALUE, maxRecs - updates.size(),
-                         new QueryCallback<ByteData>() {
-                             @Override
-                             public void sample(String seriesId, long ts, ByteData valueData) {
-                                 DBEntry entry = new DBEntry();
-                                 entry.setWatchPath(prependToPath(seriesId));
-                                 entry.setTs(ts);
-                                 entry.setValue(valueData.getValue().toString());
-                                 entry.setExpiration(getExpiration(ts));
-                                 updates.add(entry);
-                                 if (ts > lastTs.get()) {
-                                     lastTs.set(ts);
-                                 }
-                             }
-                         });
+                    new QueryCallback<ByteData>() {
+                        @Override
+                        public void sample(String seriesId, long ts, ByteData valueData) {
+                            DBEntry entry = new DBEntry();
+                            entry.setWatchPath(prependToPath(seriesId));
+                            entry.setTs(ts);
+                            entry.setValue(valueData.getValue().toString());
+                            entry.setExpiration(getExpiration(ts));
+                            updates.add(entry);
+                            if (ts > lastTs.get()) {
+                                lastTs.set(ts);
+                            }
+                        }
+                    });
             toDelete.put(path, lastTs.longValue());
         }
         if (updates.size() == 0) {
@@ -620,8 +620,7 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                 buffer.deleteSeries(e.getKey());
             }
             unsentInBuffer = false;
-            writeFromQueue();
-            return;
+            return writeFromQueue();
         }
         unsentInBuffer = true;
         if (batchWrite(updates)) {
@@ -634,19 +633,20 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                 }
             }
             checkIfQueueTooLarge();
+            return true;
         } else {
-            writeRunner.setDelay(10000);
             writeToBuffer();
+            return false;
         }
     }
 
-    private void writeFromQueue() {
+    private boolean writeFromQueue() {
         int maxSize = getBatchMaxSize();
         List<Record> tmp = new ArrayList<>(maxSize);
         synchronized (writeQueue) {
             int size = Math.min(maxSize, writeQueue.size());
             if (size == 0) {
-                return;
+                return true;
             }
             for (int i = 0; i < size; i++) {
                 tmp.add(writeQueue.get(i));
@@ -664,9 +664,10 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                 }
             }
             checkIfQueueTooLarge();
+            return true;
         } else {
-            writeRunner.setDelay(10000);
             unsentInBuffer = true;
+            return false;
         }
     }
 
@@ -713,12 +714,14 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
 
     private class WriteRunner implements Runnable {
 
-        long delay;
+        long delay = -1;
         long last = System.currentTimeMillis();
 
         @Override
         public void run() {
-            delay = getBatchMinIvl();
+            if (delay < 0) {
+                delay = getBatchMinIvl();
+            }
             long next = last + delay;
             long time = System.currentTimeMillis();
             if (next > time) {
@@ -727,32 +730,33 @@ public class DynamoDBProxy extends Database implements PurgeSettings {
                 } catch (Exception ignore) {
                 }
             }
+            boolean success;
             try {
                 if (unsentInBuffer) {
-                    writeFromBuffer();
+                    success = writeFromBuffer();
                 } else {
-                    writeFromQueue();
+                    success = writeFromQueue();
                 }
             } catch (Exception x) {
                 LOGGER.error("", x);
+                success = false;
             }
             last = System.currentTimeMillis();
-            boolean more = unsentInBuffer;
+            boolean more = false;
             synchronized (writeQueue) {
                 if (!writeQueue.isEmpty()) {
                     more = true;
                 }
                 writing = false;
             }
+            if (success) {
+                delay = getBatchMinIvl();
+            } else {
+                delay = Math.max(getBatchMinIvl(), 10000);
+            }
             if (more) {
                 write();
             }
         }
-
-        void setDelay(long delay) {
-            this.delay = delay;
-        }
-
     }
-
 }
